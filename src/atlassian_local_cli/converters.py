@@ -103,9 +103,9 @@ def md_to_confluence_html(md_text):
     # Replace colspan placeholders with actual colspan th elements.
     # Count columns from the table's thead to determine the span width.
     for key, text in colspan_rows.items():
-        # Find the row containing the placeholder
+        # Find the row containing the placeholder (may have empty cells before it)
         row_pattern = re.compile(
-            r'<tr>\s*<td>' + re.escape(key) + r'</td>(?:\s*<td></td>)*\s*</tr>'
+            r'<tr>(?:\s*<td></td>)*\s*<td>' + re.escape(key) + r'</td>(?:\s*<td></td>)*\s*</tr>'
         )
         row_match = row_pattern.search(html)
         if row_match:

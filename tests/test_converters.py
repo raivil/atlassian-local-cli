@@ -128,6 +128,15 @@ class TestMdToConfluenceHtml:
         assert "FIRST" in result
         assert "SECOND" in result
 
+    def test_colspan_with_leading_empty_cells(self):
+        """Colspan marker may end up in a non-first cell when table lacks leading pipe."""
+        md = "| A | B | C |\n|---|---|---|\n|| HEADER ||\n| 1 | 2 | 3 |"
+        result = md_to_confluence_html(md)
+        assert 'colspan="3"' in result
+        assert "HEADER" in result
+        # Should NOT have empty td cells in the colspan row
+        assert "<td></td>" not in result.split("HEADER")[0].split("</thead>")[-1]
+
 
 class TestStripFrontmatterAndTitle:
     def test_frontmatter_only(self):

@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.5.1 (2026-03-20)
+
+### Fixed
+- Colspan row regex now handles empty cells before the marker when tables lack a leading pipe delimiter
+
 ## v0.5.0 (2026-03-20)
 
 ### Added
