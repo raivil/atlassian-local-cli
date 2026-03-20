@@ -41,6 +41,7 @@ Python package in `src/atlassian_local_cli/` with `main.py` as a backward-compat
 - **`converters.py`** — all pure transformation functions:
   - `preprocess_export_html()` — converts Confluence HTML to markdown tokens before html2text (status badges → `{status:TITLE|colour}`, user mentions → `@username`)
   - `md_to_confluence_html()` — converts markdown to Confluence storage format. Processes status badges and `@username` *before* the markdown parser (to avoid `|` in `{status:X|colour}` breaking table parsing), then transforms `<pre><code>` into `ac:structured-macro` code macros
+  - Colspan table section headers: `|| TEXT ||` in markdown ↔ `<th colspan="N">` in Confluence. Column count auto-detected from thead.
   - `strip_frontmatter_and_title()` — strips YAML frontmatter and `# Title` heading from markdown before upload
 - **`wiki.py`** — export prepends YAML frontmatter (page_id, space, version, author, dates, url) and `# Title`; update/create strip both before uploading
 - **`jira_commands.py`** — `build_jql()` constructs JQL from filter params; `jira-my-tasks` supports `--json` for integrations; `jira-transition` matches by status name (case-insensitive) or transition ID
