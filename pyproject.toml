@@ -1,0 +1,20 @@
+[project]
+name = "atlassian-local-cli"
+version = "0.2.0"
+description = "CLI to interact with Confluence and Jira from the command line"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "atlassian-python-api>=3.41.0",
+    "html2text>=2025.4.15",
+    "markdown>=3.7",
+    "python-dotenv>=1.1.0",
+]
+
+[project.scripts]
+atlassian-local-cli = "main:main"
+
+[dependency-groups]
+dev = [
+    "pyinstaller>=6.19.0",
+]
