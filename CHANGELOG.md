@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.4.0 (2026-03-20)
+
+### Added
+- Status badges support: `{status:DONE|green}` syntax in markdown, converts to/from Confluence `ac:structured-macro` status lozenges (green, red, blue, yellow, grey)
+- User mentions support: `@username` syntax in markdown, converts to/from Confluence `ac:link` user references
+- Full test suite with pytest (61 tests, 100% coverage)
+- `make test` and `make test-cov` targets
+
+### Changed
+- Refactored from single-file `main.py` into `src/atlassian_local_cli/` package with modules: `config`, `clients`, `converters`, `wiki`, `jira_commands`, `cli`
+- `Config` is now a frozen dataclass with lazy loading/caching (testable without side effects)
+- Switched build system from setuptools to hatchling (src layout)
+- `main.py` is now a backward-compat shim for PyInstaller
+
 ## v0.3.0 (2026-03-20)
 
 ### Added

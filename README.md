@@ -100,12 +100,27 @@ atlassian-local-cli jira-transition PROJ-123 "In Progress"  # move to status
 | `--limit` | Max results (default: 50) | `--limit 10` |
 | `--json` | Output as JSON for integrations | `--json` |
 
+### Confluence-specific syntax
+
+Status badges and user mentions are supported in markdown and convert to/from native Confluence macros:
+
+```markdown
+| Task         | Status              | Owner    |
+|--------------|---------------------|----------|
+| Deploy DB    | {status:DONE|green} | @jdoe    |
+| Configure LB | {status:PENDING|yellow} | @alice |
+```
+
+**Status badge colours:** `green`, `red`, `blue`, `yellow`, `grey`
+
 ### Make targets
 
 All commands are also available as make targets for development:
 
 ```bash
 make setup                                                  # Install dependencies
+make test                                                   # Run tests
+make test-cov                                               # Run tests with coverage
 make build                                                  # Build standalone binary
 make clean                                                  # Remove build artifacts
 make wiki-export PAGE=12345 OUTPUT=page.md

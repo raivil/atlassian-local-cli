@@ -10,6 +10,9 @@ CLI tool (`atlassian-local-cli`) for interacting with Confluence and Jira. Uses 
 
 ```bash
 make setup                                                  # Install dependencies (uv sync)
+make test                                                   # Run tests
+make test-cov                                               # Run tests with coverage (terminal + HTML)
+uv run pytest tests/test_converters.py::TestMdToConfluenceHtml::test_status_badge  # Run a single test
 make build                                                  # Build standalone binary (PyInstaller)
 make clean                                                  # Remove build artifacts
 make wiki-export PAGE=<id> [OUTPUT=out.md]                  # Export Confluence page
@@ -31,12 +34,14 @@ Env vars loaded from `~/.config/atlassian-local-cli/.env`. See `.env.example`.
 
 ## Architecture
 
-Single-file CLI (`main.py`) with argparse subcommands. Entry point `main()` registered as `atlassian-local-cli` in `pyproject.toml`. Managed with `uv`.
+Python package in `src/atlassian_local_cli/` with `main.py` as a backward-compat shim for PyInstaller. Entry point `atlassian_local_cli.cli:main`. Managed with `uv` and built with `hatchling`.
 
-- `_confluence()` / `_jira()` — build authenticated client instances. Confluence supports basic or Bearer auth; Jira always uses Bearer (PATs don't work with basic auth)
-- `_md_to_confluence_html()` — converts markdown to Confluence storage format; transforms `<pre><code>` into `ac:structured-macro` code macros for proper syntax highlighting
-- `_unescape_html()` — reverses HTML entity encoding inside code blocks before wrapping in CDATA
-- `_strip_frontmatter_and_title()` — strips YAML frontmatter and `# Title` heading from markdown before upload; used by both update and create
-- Export prepends YAML frontmatter (page_id, space, version, author, dates, url) and a `# Title` heading; update/create strip both before uploading
-- `jira-my-tasks` supports `--json` for integration use and table format for terminal
-- `jira-transition` matches by status name (case-insensitive) or transition ID
+- **`config.py`** — `Config` dataclass + `get_config()` with lazy loading/caching. `reset_config()` for test isolation.
+- **`clients.py`** — `create_confluence()` / `create_jira()` factory functions. Confluence supports basic or Bearer auth; Jira always uses Bearer (PATs don't work with basic auth).
+- **`converters.py`** — all pure transformation functions:
+  - `preprocess_export_html()` — converts Confluence HTML to markdown tokens before html2text (status badges → `{status:TITLE|colour}`, user mentions → `@username`)
+  - `md_to_confluence_html()` — converts markdown to Confluence storage format. Processes status badges and `@username` *before* the markdown parser (to avoid `|` in `{status:X|colour}` breaking table parsing), then transforms `<pre><code>` into `ac:structured-macro` code macros
+  - `strip_frontmatter_and_title()` — strips YAML frontmatter and `# Title` heading from markdown before upload
+- **`wiki.py`** — export prepends YAML frontmatter (page_id, space, version, author, dates, url) and `# Title`; update/create strip both before uploading
+- **`jira_commands.py`** — `build_jql()` constructs JQL from filter params; `jira-my-tasks` supports `--json` for integrations; `jira-transition` matches by status name (case-insensitive) or transition ID
+- **`cli.py`** — argparse subcommands dispatching to wiki/jira handlers
