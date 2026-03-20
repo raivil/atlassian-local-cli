@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.5.0 (2026-03-20)
+
+### Added
+- Colspan support for table section headers: `|| SECTION HEADER ||` syntax spans all columns automatically
+- Column count auto-detected from the table's header row
+
+### Fixed
+- Section headers like "BEFORE THE MIGRATION" no longer produce empty cells when uploaded to Confluence
+
 ## v0.4.0 (2026-03-20)
 
 ### Added

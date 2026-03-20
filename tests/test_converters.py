@@ -44,6 +44,12 @@ class TestPreprocessExportHtml:
         html = "<p>Hello <strong>world</strong></p>"
         assert preprocess_export_html(html) == html
 
+    def test_colspan_row(self):
+        html = '<tr><th colspan="7">BEFORE THE MIGRATION</th></tr>'
+        result = preprocess_export_html(html)
+        assert "|| BEFORE THE MIGRATION ||" in result
+        assert "colspan" not in result
+
 
 class TestUnescapeHtml:
     def test_all_entities(self):
@@ -108,6 +114,19 @@ class TestMdToConfluenceHtml:
         assert "ri:username" in result
         assert 'ac:name="status"' in result
         assert 'ac:name="code"' in result
+
+    def test_colspan_row_in_table(self):
+        md = "| A | B |\n|---|---|\n|| SECTION HEADER ||\n| 1 | 2 |"
+        result = md_to_confluence_html(md)
+        assert 'colspan="2"' in result
+        assert "SECTION HEADER" in result
+
+    def test_colspan_multiple_sections(self):
+        md = "| A | B | C |\n|---|---|---|\n|| FIRST ||\n| 1 | 2 | 3 |\n|| SECOND ||\n| 4 | 5 | 6 |"
+        result = md_to_confluence_html(md)
+        assert result.count('colspan="3"') == 2
+        assert "FIRST" in result
+        assert "SECOND" in result
 
 
 class TestStripFrontmatterAndTitle:

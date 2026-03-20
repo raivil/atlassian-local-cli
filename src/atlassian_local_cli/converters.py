@@ -43,6 +43,13 @@ def preprocess_export_html(html):
         html,
     )
 
+    # Colspan header rows: <th colspan="N">TEXT</th> → || TEXT || marker
+    html = re.sub(
+        r'<tr[^>]*>\s*<th[^>]*colspan="(\d+)"[^>]*>(.*?)</th>\s*</tr>',
+        lambda m: f'<tr><td>|| {m.group(2).strip()} ||</td></tr>',
+        html,
+    )
+
     return html
 
 
@@ -76,7 +83,45 @@ def md_to_confluence_html(md_text):
         md_text,
     )
 
+    # Extract colspan rows from markdown tables before parsing.
+    # || TEXT || rows become placeholders that survive markdown table parsing.
+    colspan_rows = {}
+    colspan_counter = [0]
+
+    def _extract_colspan(m):
+        text = m.group(1).strip()
+        key = f"COLSPAN-MARKER-{colspan_counter[0]}__"
+        colspan_rows[key] = text
+        colspan_counter[0] += 1
+        # Return a normal-looking table row with the placeholder in the first cell
+        return f"| {key} |"
+
+    md_text = re.sub(r'^\|\| (.+?) \|\|.*$', _extract_colspan, md_text, flags=re.MULTILINE)
+
     html = md_lib.markdown(md_text, extensions=["tables", "fenced_code"])
+
+    # Replace colspan placeholders with actual colspan th elements.
+    # Count columns from the table's thead to determine the span width.
+    for key, text in colspan_rows.items():
+        # Find the row containing the placeholder
+        row_pattern = re.compile(
+            r'<tr>\s*<td>' + re.escape(key) + r'</td>(?:\s*<td></td>)*\s*</tr>'
+        )
+        row_match = row_pattern.search(html)
+        if row_match:
+            pos = row_match.start()
+            # Find the nearest thead before this position to count columns
+            thead_start = html.rfind("<thead>", 0, pos)
+            col_count = 1
+            if thead_start != -1:
+                thead_end = html.find("</thead>", thead_start)
+                thead_html = html[thead_start:thead_end] if thead_end != -1 else ""
+                col_count = thead_html.count("<th>") + len(re.findall(r"<th ", thead_html))
+            html = row_pattern.sub(
+                f'<tr><th colspan="{col_count}">{text}</th></tr>',
+                html,
+                count=1,
+            )
 
     html = re.sub(
         r'<pre><code class="language-(\w+)">(.*?)</code></pre>',
