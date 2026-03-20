@@ -10,6 +10,8 @@ CLI tool (`atlassian-local-cli`) for interacting with Confluence and Jira. Uses 
 
 ```bash
 make setup                                                  # Install dependencies (uv sync)
+make build                                                  # Build standalone binary (PyInstaller)
+make clean                                                  # Remove build artifacts
 make wiki-export PAGE=<id> [OUTPUT=out.md]                  # Export Confluence page
 make wiki-update PAGE=<id> INPUT=<file.md>                  # Update Confluence page
 make wiki-create SPACE=<key> TITLE="title" INPUT=<file.md>  # Create Confluence page
@@ -34,6 +36,7 @@ Single-file CLI (`main.py`) with argparse subcommands. Entry point `main()` regi
 - `_confluence()` / `_jira()` — build authenticated client instances. Confluence supports basic or Bearer auth; Jira always uses Bearer (PATs don't work with basic auth)
 - `_md_to_confluence_html()` — converts markdown to Confluence storage format; transforms `<pre><code>` into `ac:structured-macro` code macros for proper syntax highlighting
 - `_unescape_html()` — reverses HTML entity encoding inside code blocks before wrapping in CDATA
-- Export prepends a `# Title` heading; update/create strip it before uploading
+- `_strip_frontmatter_and_title()` — strips YAML frontmatter and `# Title` heading from markdown before upload; used by both update and create
+- Export prepends YAML frontmatter (page_id, space, version, author, dates, url) and a `# Title` heading; update/create strip both before uploading
 - `jira-my-tasks` supports `--json` for integration use and table format for terminal
 - `jira-transition` matches by status name (case-insensitive) or transition ID

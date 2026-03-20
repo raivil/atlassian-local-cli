@@ -83,18 +83,49 @@ def _unescape_html(text):
             .replace("&quot;", '"'))
 
 
+def _strip_frontmatter_and_title(md_text):
+    """Strip YAML frontmatter and title heading, return (title, body)."""
+    # Strip frontmatter if present
+    fm_match = re.match(r"^---\n.*?\n---\n\n?", md_text, re.DOTALL)
+    if fm_match:
+        md_text = md_text[fm_match.end():]
+
+    # Strip title heading
+    title = None
+    title_match = re.match(r"^# (.+)\n\n", md_text)
+    if title_match:
+        title = title_match.group(1).strip()
+        md_text = md_text[title_match.end():]
+
+    return title, md_text
+
+
 # -- Wiki commands --
 
 def wiki_export(args):
     confluence = _confluence()
-    page = confluence.get_page_by_id(args.page_id, expand="body.export_view")
+    page = confluence.get_page_by_id(args.page_id, expand="body.export_view,version,space,history")
 
     html_content = page["body"]["export_view"]["value"]
     h = html2text.HTML2Text()
     h.ignore_links = False
     h.ignore_images = False
     h.ignore_emphasis = False
-    content = f"# {page['title']}\n\n{h.handle(html_content)}"
+
+    page_url = f"{WIKI_URL.rstrip('/')}/pages/viewpage.action?pageId={page['id']}"
+    frontmatter = (
+        f"---\n"
+        f"page_id: \"{page['id']}\"\n"
+        f"space: {page['space']['key']}\n"
+        f"version: {page['version']['number']}\n"
+        f"author: {page['history']['createdBy']['displayName']}\n"
+        f"created: {page['history']['createdDate']}\n"
+        f"updated: {page['version']['when']}\n"
+        f"url: {page_url}\n"
+        f"---\n\n"
+    )
+
+    content = f"{frontmatter}# {page['title']}\n\n{h.handle(html_content)}"
 
     if args.output:
         os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
@@ -109,13 +140,7 @@ def wiki_update(args):
     with open(args.input_file, "r", encoding="utf-8") as f:
         md_text = f.read()
 
-    # Strip the title heading we prepend during export
-    title_from_file = None
-    match = re.match(r"^# (.+)\n\n", md_text)
-    if match:
-        title_from_file = match.group(1).strip()
-        md_text = md_text[match.end():]
-
+    title_from_file, md_text = _strip_frontmatter_and_title(md_text)
     html_content = _md_to_confluence_html(md_text)
 
     confluence = _confluence()
@@ -130,11 +155,7 @@ def wiki_create(args):
     with open(args.input_file, "r", encoding="utf-8") as f:
         md_text = f.read()
 
-    # Strip title heading if present, use it as page title
-    match = re.match(r"^# (.+)\n\n", md_text)
-    if match:
-        md_text = md_text[match.end():]
-
+    _, md_text = _strip_frontmatter_and_title(md_text)
     html_content = _md_to_confluence_html(md_text)
 
     confluence = _confluence()
