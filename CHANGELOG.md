@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.7.0 (2026-03-23)
+
+### Added
+- Info/note/warning/tip panel support: `> {panel:info|Title}` blockquote syntax converts to/from Confluence `ac:structured-macro` panels
+- All 4 panel types: `info`, `note`, `warning`, `tip`
+- 85 tests with 100% coverage
+
 ## v0.6.0 (2026-03-23)
 
 ### Added

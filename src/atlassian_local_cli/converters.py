@@ -76,6 +76,37 @@ def preprocess_export_html(html):
         flags=re.DOTALL,
     )
 
+    # Info/note/warning/tip panels
+    _MACRO_TYPE_MAP = {
+        "information": "info",
+        "note": "note",
+        "warning": "warning",
+        "tip": "tip",
+    }
+
+    def _replace_panel(m):
+        classes = m.group(1)
+        title_html = m.group(2) or ""
+        body_html = m.group(3)
+        panel_type = "info"
+        for suffix, ptype in _MACRO_TYPE_MAP.items():
+            if f"macro-{suffix}" in classes:
+                panel_type = ptype
+                break
+        title = re.sub(r'<[^>]+>', '', title_html).strip()
+        body = re.sub(r'<[^>]+>', '', body_html).strip()
+        header = f"{{panel:{panel_type}|{title}}}" if title else f"{{panel:{panel_type}}}"
+        return f"PANEL-START: {header}<br/>PANEL-BODY: {body}<br/>PANEL-END"
+
+    html = re.sub(
+        r'<div[^>]*class="(confluence-information-macro[^"]*)"[^>]*>'
+        r'(?:<p[^>]*class="title[^"]*"[^>]*>(.*?)</p>)?'
+        r'.*?<div[^>]*class="confluence-information-macro-body"[^>]*>(.*?)</div>\s*</div>',
+        _replace_panel,
+        html,
+        flags=re.DOTALL,
+    )
+
     # Colspan header rows: <th colspan="N">TEXT</th> → || TEXT || marker
     html = re.sub(
         r'<tr[^>]*>\s*<th[^>]*colspan="(\d+)"[^>]*>(.*?)</th>\s*</tr>',
@@ -90,6 +121,23 @@ def postprocess_export_md(md_text):
     """Convert placeholders back to markdown syntax after html2text."""
     md_text = re.sub(r'TASK-CHECKED: (.+)', r'- [x] \1', md_text)
     md_text = re.sub(r'TASK-UNCHECKED: (.+)', r'- [ ] \1', md_text)
+
+    # Panel placeholders → blockquote syntax
+    def _restore_panel(m):
+        header = m.group(1).strip()
+        body = m.group(2).strip()
+        lines = [f"> {header}"]
+        for line in body.split("\n"):
+            lines.append(f"> {line.strip()}")
+        return "\n".join(lines)
+
+    md_text = re.sub(
+        r'PANEL-START: (.+?)[\s]*PANEL-BODY: (.+?)[\s]*PANEL-END',
+        _restore_panel,
+        md_text,
+        flags=re.DOTALL,
+    )
+
     return md_text
 
 
@@ -123,6 +171,31 @@ def md_to_confluence_html(md_text):
         r'<time datetime="\1" />',
         md_text,
     )
+
+    # Convert panel blocks: > {panel:type|title}\n> content
+    def _convert_panel_block(m):
+        block = m.group(0)
+        # Extract header line
+        header_match = re.match(r'> \{panel:(\w+)(?:\|([^}]*))?\}', block)
+        if not header_match:  # pragma: no cover
+            return block
+        panel_type = header_match.group(1)
+        title = header_match.group(2) or ""
+        # Extract body lines (everything after the header)
+        body_lines = []
+        for line in block.split("\n")[1:]:
+            body_lines.append(re.sub(r'^> ?', '', line))
+        body = "\n".join(body_lines).strip()
+        body_html = md_lib.markdown(body, extensions=["tables", "fenced_code"])
+        title_param = f'<ac:parameter ac:name="title">{title}</ac:parameter>' if title else ""
+        return (
+            f'<ac:structured-macro ac:name="{panel_type}">'
+            f'{title_param}'
+            f'<ac:rich-text-body>{body_html}</ac:rich-text-body>'
+            f'</ac:structured-macro>'
+        )
+
+    md_text = re.sub(r'^> \{panel:\w+(?:\|[^}]*)?\}(?:\n> .*)*', _convert_panel_block, md_text, flags=re.MULTILINE)
 
     # Convert markdown checkboxes to Confluence task list
     def _convert_md_tasks(m):

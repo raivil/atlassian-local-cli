@@ -71,6 +71,28 @@ class TestPreprocessExportHtml:
         assert "TASK-CHECKED: Done" in result
         assert "TASK-UNCHECKED: Open" in result
 
+    def test_info_panel(self):
+        html = '<div class="confluence-information-macro confluence-information-macro-information"><p class="title conf-macro-render">My Title</p><span class="aui-icon"></span><div class="confluence-information-macro-body"><p>Body text</p></div></div>'
+        result = preprocess_export_html(html)
+        assert "PANEL-START: {panel:info|My Title}" in result
+        assert "PANEL-BODY: Body text" in result
+
+    def test_warning_panel(self):
+        html = '<div class="confluence-information-macro confluence-information-macro-warning"><div class="confluence-information-macro-body"><p>Warning!</p></div></div>'
+        result = preprocess_export_html(html)
+        assert "PANEL-START: {panel:warning}" in result
+        assert "PANEL-BODY: Warning!" in result
+
+    def test_note_panel(self):
+        html = '<div class="confluence-information-macro confluence-information-macro-note"><div class="confluence-information-macro-body"><p>Note</p></div></div>'
+        result = preprocess_export_html(html)
+        assert "{panel:note}" in result
+
+    def test_tip_panel(self):
+        html = '<div class="confluence-information-macro confluence-information-macro-tip"><div class="confluence-information-macro-body"><p>Tip</p></div></div>'
+        result = preprocess_export_html(html)
+        assert "{panel:tip}" in result
+
 
 class TestPostprocessExportMd:
     def test_checked_task(self):
@@ -88,6 +110,18 @@ class TestPostprocessExportMd:
     def test_no_tasks(self):
         md = "plain text"
         assert postprocess_export_md(md) == "plain text"
+
+    def test_panel_placeholder(self):
+        md = "PANEL-START: {panel:info|Title}\nPANEL-BODY: Body text\nPANEL-END"
+        result = postprocess_export_md(md)
+        assert "> {panel:info|Title}" in result
+        assert "> Body text" in result
+
+    def test_panel_no_title(self):
+        md = "PANEL-START: {panel:warning}\nPANEL-BODY: Warning!\nPANEL-END"
+        result = postprocess_export_md(md)
+        assert "> {panel:warning}" in result
+        assert "> Warning!" in result
 
 
 class TestUnescapeHtml:
@@ -171,6 +205,26 @@ class TestMdToConfluenceHtml:
         md = "- [X] Done task"
         result = md_to_confluence_html(md)
         assert "<ac:task-status>complete</ac:task-status>" in result
+
+    def test_panel_info_with_title(self):
+        md = "> {panel:info|My Title}\n> Panel content here"
+        result = md_to_confluence_html(md)
+        assert 'ac:name="info"' in result
+        assert 'ac:name="title">My Title<' in result
+        assert "Panel content here" in result
+
+    def test_panel_warning_no_title(self):
+        md = "> {panel:warning}\n> Danger zone"
+        result = md_to_confluence_html(md)
+        assert 'ac:name="warning"' in result
+        assert "ac:name=\"title\"" not in result
+        assert "Danger zone" in result
+
+    def test_panel_all_types(self):
+        for ptype in ("info", "note", "warning", "tip"):
+            md = f"> {{panel:{ptype}}}\n> Content"
+            result = md_to_confluence_html(md)
+            assert f'ac:name="{ptype}"' in result
 
     def test_colspan_row_in_table(self):
         md = "| A | B |\n|---|---|\n|| SECTION HEADER ||\n| 1 | 2 |"
