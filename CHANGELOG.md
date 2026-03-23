@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.9.0 (2026-03-23)
+
+### Added
+- Jira issue embed support: `{jira:PROJ-123}` syntax converts to/from Confluence Jira issue macro
+- Generic panel support: `> {panel:panel|Title}` for Confluence styled panels
+
+### Fixed
+- Task lists inside table cells no longer break XHTML upload; rendered as compact inline format `[x] Done; [ ] Open`
+
 ## v0.8.0 (2026-03-23)
 
 ### Added
