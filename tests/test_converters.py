@@ -329,6 +329,19 @@ class TestMdToConfluenceHtml:
         assert "ac:name=\"title\"" not in result
         assert "Danger zone" in result
 
+    def test_panel_not_wrapped_in_p_tag(self):
+        md = "> {panel:info|Title}\n> Content here"
+        result = md_to_confluence_html(md)
+        assert "<p><ac:structured-macro" not in result
+        assert 'ac:name="info"' in result
+
+    def test_panel_multi_paragraph(self):
+        md = "> {panel:info|Title}\n> First para.\n>\n> Second para."
+        result = md_to_confluence_html(md)
+        assert "First para." in result
+        assert "Second para." in result
+        assert result.count("<ac:rich-text-body>") == 1
+
     def test_panel_all_types(self):
         for ptype in ("info", "note", "warning", "tip", "panel"):
             md = f"> {{panel:{ptype}}}\n> Content"

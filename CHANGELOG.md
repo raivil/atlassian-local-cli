@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.0.1 (2026-03-23)
+
+### Fixed
+- Panel blocks no longer produce invalid XHTML — conversion now happens after markdown parsing to avoid `<p>` wrapping `<ac:structured-macro>` elements
+- Multi-paragraph panels now work correctly (blank `>` lines are preserved)
+
 ## v1.0.0 (2026-03-23)
 
 ### Added

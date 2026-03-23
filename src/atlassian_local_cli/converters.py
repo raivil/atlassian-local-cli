@@ -339,30 +339,28 @@ def md_to_confluence_html(md_text):
         md_text,
     )
 
-    # Convert panel blocks: > {panel:type|title}\n> content
-    def _convert_panel_block(m):
+    # Extract panel blocks before markdown parsing (to avoid md parser wrapping XML in <p> tags).
+    # Store as placeholders, convert to XML after markdown parsing.
+    panel_blocks = {}
+    panel_counter = [0]
+
+    def _extract_panel_block(m):
         block = m.group(0)
-        # Extract header line
         header_match = re.match(r'> \{panel:(\w+)(?:\|([^}]*))?\}', block)
         if not header_match:  # pragma: no cover
             return block
         panel_type = header_match.group(1)
         title = header_match.group(2) or ""
-        # Extract body lines (everything after the header)
         body_lines = []
         for line in block.split("\n")[1:]:
             body_lines.append(re.sub(r'^> ?', '', line))
         body = "\n".join(body_lines).strip()
-        body_html = md_lib.markdown(body, extensions=["tables", "fenced_code"])
-        title_param = f'<ac:parameter ac:name="title">{title}</ac:parameter>' if title else ""
-        return (
-            f'<ac:structured-macro ac:name="{panel_type}">'
-            f'{title_param}'
-            f'<ac:rich-text-body>{body_html}</ac:rich-text-body>'
-            f'</ac:structured-macro>'
-        )
+        key = f"PANEL-BLOCK-{panel_counter[0]}"
+        panel_blocks[key] = (panel_type, title, body)
+        panel_counter[0] += 1
+        return key
 
-    md_text = re.sub(r'^> \{panel:\w+(?:\|[^}]*)?\}(?:\n> .*)*', _convert_panel_block, md_text, flags=re.MULTILINE)
+    md_text = re.sub(r'^> \{panel:\w+(?:\|[^}]*)?\}(?:\n>[ ]?.*)*', _extract_panel_block, md_text, flags=re.MULTILINE)
 
     # Convert markdown checkboxes to Confluence task list
     def _convert_md_tasks(m):
@@ -449,6 +447,19 @@ def md_to_confluence_html(md_text):
         html,
         flags=re.DOTALL,
     )
+
+    # Restore panel block placeholders with actual XML (after markdown parsing)
+    for key, (panel_type, title, body) in panel_blocks.items():
+        body_html = md_lib.markdown(body, extensions=["tables", "fenced_code"])
+        title_param = f'<ac:parameter ac:name="title">{title}</ac:parameter>' if title else ""
+        panel_xml = (
+            f'<ac:structured-macro ac:name="{panel_type}">'
+            f'{title_param}'
+            f'<ac:rich-text-body>{body_html}</ac:rich-text-body>'
+            f'</ac:structured-macro>'
+        )
+        html = html.replace(f"<p>{key}</p>", panel_xml)
+        html = html.replace(key, panel_xml)
 
     # Restore passthrough blocks
     html = restore_passthrough_blocks(html, passthrough_mapping)
