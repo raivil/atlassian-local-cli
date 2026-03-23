@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.0.0 (2026-03-23)
+
+### Added
+- Passthrough preservation for unknown Confluence macros (details, expand, anchor, toc, etc.)
+- Unknown macros are extracted from storage XML and stored as HTML comments in the markdown footer
+- On import, passthrough blocks are restored as raw XML into Confluence storage format
+- Stack-based XML parser handles nested macros correctly
+- `beautifulsoup4` added as explicit dependency
+- 103 tests with 100% coverage
+
 ## v0.9.0 (2026-03-23)
 
 ### Added
