@@ -4,14 +4,27 @@ import html2text
 
 from .clients import create_confluence
 from .config import get_config
-from .converters import md_to_confluence_html, postprocess_export_md, preprocess_export_html, strip_frontmatter_and_title
+from .converters import (
+    extract_unknown_macros,
+    md_to_confluence_html,
+    postprocess_export_md,
+    preprocess_export_html,
+    serialize_passthrough_footer,
+    strip_frontmatter_and_title,
+)
 
 
 def wiki_export(args):
     confluence = create_confluence()
-    page = confluence.get_page_by_id(args.page_id, expand="body.export_view,version,space,history")
+    page = confluence.get_page_by_id(args.page_id, expand="body.export_view,body.storage,version,space,history")
 
-    html_content = preprocess_export_html(page["body"]["export_view"]["value"])
+    export_html = page["body"]["export_view"]["value"]
+    storage_html = page["body"]["storage"]["value"]
+
+    # Extract unknown macros and replace with placeholders in export_view
+    export_html, passthrough_mapping = extract_unknown_macros(export_html, storage_html)
+
+    html_content = preprocess_export_html(export_html)
     h = html2text.HTML2Text()
     h.ignore_links = False
     h.ignore_images = False
@@ -32,7 +45,8 @@ def wiki_export(args):
     )
 
     md_body = postprocess_export_md(h.handle(html_content))
-    content = f"{frontmatter}# {page['title']}\n\n{md_body}"
+    passthrough_footer = serialize_passthrough_footer(passthrough_mapping)
+    content = f"{frontmatter}# {page['title']}\n\n{md_body}{passthrough_footer}"
 
     if args.output:
         os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)

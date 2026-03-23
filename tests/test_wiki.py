@@ -14,6 +14,7 @@ MOCK_PAGE = {
     },
     "body": {
         "export_view": {"value": "<p>Hello world</p>"},
+        "storage": {"value": "<p>Hello world</p>"},
     },
 }
 

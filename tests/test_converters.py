@@ -1,7 +1,11 @@
 from atlassian_local_cli.converters import (
+    extract_passthrough_footer,
+    extract_unknown_macros,
     md_to_confluence_html,
     postprocess_export_md,
     preprocess_export_html,
+    restore_passthrough_blocks,
+    serialize_passthrough_footer,
     strip_frontmatter_and_title,
     unescape_html,
 )
@@ -148,6 +152,85 @@ class TestPostprocessExportMd:
         result = postprocess_export_md(md)
         assert "> {panel:warning}" in result
         assert "> Warning!" in result
+
+
+class TestPassthrough:
+    UNKNOWN_MACRO = '<ac:structured-macro ac:name="expand"><ac:parameter ac:name="title">Details</ac:parameter><ac:rich-text-body><p>Hidden content</p></ac:rich-text-body></ac:structured-macro>'
+    NESTED_MACRO = '<ac:structured-macro ac:name="details"><ac:rich-text-body><ac:structured-macro ac:name="status"><ac:parameter ac:name="title">OK</ac:parameter></ac:structured-macro></ac:rich-text-body></ac:structured-macro>'
+
+    def test_extract_unknown_macros(self):
+        storage = f'<p>Before</p>{self.UNKNOWN_MACRO}<p>After</p>'
+        _, mapping = extract_unknown_macros("<p>rendered</p>", storage)
+        assert len(mapping) == 1
+        assert self.UNKNOWN_MACRO in list(mapping.values())[0]
+
+    def test_extract_skips_known_macros(self):
+        storage = '<ac:structured-macro ac:name="status"><ac:parameter ac:name="title">OK</ac:parameter></ac:structured-macro>'
+        _, mapping = extract_unknown_macros("", storage)
+        assert len(mapping) == 0
+
+    def test_extract_nested_macros(self):
+        storage = self.NESTED_MACRO
+        _, mapping = extract_unknown_macros("", storage)
+        assert len(mapping) == 1
+        xml = list(mapping.values())[0]
+        assert xml.count("<ac:structured-macro") == 2
+        assert xml.count("</ac:structured-macro>") == 2
+
+    def test_serialize_footer(self):
+        mapping = {"CONFLUENCE-PASSTHROUGH-0": "<macro/>"}
+        footer = serialize_passthrough_footer(mapping)
+        assert "confluence-passthrough-start" in footer
+        assert "confluence-passthrough-stop" in footer
+        assert "CONFLUENCE-PASSTHROUGH-0:" in footer
+        assert "<macro/>" in footer
+
+    def test_serialize_empty(self):
+        assert serialize_passthrough_footer({}) == ""
+
+    def test_extract_footer(self):
+        md = "body text\n<!-- confluence-passthrough-start -->\n<!-- confluence-passthrough\nCONFLUENCE-PASSTHROUGH-0:\n<macro/>\n:CONFLUENCE-PASSTHROUGH-0 -->\n<!-- confluence-passthrough-stop -->\n"
+        cleaned, mapping = extract_passthrough_footer(md)
+        assert "body text" in cleaned
+        assert "confluence-passthrough" not in cleaned
+        assert mapping["CONFLUENCE-PASSTHROUGH-0"] == "<macro/>"
+
+    def test_extract_footer_missing(self):
+        md = "just body text"
+        cleaned, mapping = extract_passthrough_footer(md)
+        assert cleaned == md
+        assert mapping == {}
+
+    def test_restore_with_marker(self):
+        html = "<p>CONFLUENCE-PASSTHROUGH-0</p>"
+        result = restore_passthrough_blocks(html, {"CONFLUENCE-PASSTHROUGH-0": "<macro/>"})
+        assert result == "<macro/>"
+
+    def test_restore_without_marker_appends(self):
+        html = "<p>Regular content</p>"
+        result = restore_passthrough_blocks(html, {"CONFLUENCE-PASSTHROUGH-0": "<macro/>"})
+        assert "<p>Regular content</p>" in result
+        assert "<macro/>" in result
+
+    def test_restore_inline_marker(self):
+        html = "<td>CONFLUENCE-PASSTHROUGH-0</td>"
+        result = restore_passthrough_blocks(html, {"CONFLUENCE-PASSTHROUGH-0": "<macro/>"})
+        assert result == "<td><macro/></td>"
+
+    def test_restore_deleted_marker(self):
+        html = "<p>Content only</p>"
+        mapping = {"CONFLUENCE-PASSTHROUGH-0": "<macro1/>", "CONFLUENCE-PASSTHROUGH-1": "<macro2/>"}
+        result = restore_passthrough_blocks(html, mapping)
+        assert "<macro1/>" in result
+        assert "<macro2/>" in result
+
+    def test_round_trip(self):
+        mapping = {"CONFLUENCE-PASSTHROUGH-0": self.UNKNOWN_MACRO}
+        footer = serialize_passthrough_footer(mapping)
+        md = f"Some content\n\nCONFLUENCE-PASSTHROUGH-0\n{footer}"
+        result = md_to_confluence_html(md)
+        assert 'ac:name="expand"' in result
+        assert "Hidden content" in result
 
 
 class TestUnescapeHtml:

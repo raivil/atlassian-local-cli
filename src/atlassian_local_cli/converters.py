@@ -1,6 +1,11 @@
 import re
+from collections import defaultdict
 
 import markdown as md_lib
+from bs4 import BeautifulSoup
+
+KNOWN_MACRO_TYPES = {"status", "code", "info", "note", "warning", "tip", "panel", "jira"}
+PASSTHROUGH_PREFIX = "CONFLUENCE-PASSTHROUGH-"
 
 LOZENGE_TO_COLOUR = {
     "aui-lozenge-success": "green",
@@ -34,6 +39,108 @@ def _convert_task_list(inner_html):
             lines.append(f"TASK-UNCHECKED: {text}")
     # Return as paragraphs so html2text preserves them as separate lines
     return "<br/>".join(lines)
+
+
+def _find_top_level_macros(storage_html):
+    """Find all top-level ac:structured-macro elements with proper nesting support."""
+    open_tag = "<ac:structured-macro"
+    close_tag = "</ac:structured-macro>"
+    results = []
+    pos = 0
+    while True:
+        start = storage_html.find(open_tag, pos)
+        if start == -1:
+            break
+        # Find the matching close tag by counting nesting depth
+        depth = 0
+        scan = start
+        while scan < len(storage_html):
+            next_open = storage_html.find(open_tag, scan + 1)
+            next_close = storage_html.find(close_tag, scan + 1)
+            if next_close == -1:  # pragma: no cover
+                break
+            if next_open != -1 and next_open < next_close:
+                depth += 1
+                scan = next_open
+            else:
+                if depth == 0:
+                    end = next_close + len(close_tag)
+                    xml = storage_html[start:end]
+                    name_match = re.search(r'ac:name="([^"]*)"', xml)
+                    name = name_match.group(1) if name_match else ""
+                    results.append((name, xml))
+                    pos = end
+                    break
+                else:
+                    depth -= 1
+                    scan = next_close
+        else:  # pragma: no cover
+            break
+    return results
+
+
+def extract_unknown_macros(export_html, storage_html):
+    """Extract unknown macros from storage XML, return export_html unchanged and mapping."""
+    mapping = {}
+    counter = 0
+
+    for name, xml in _find_top_level_macros(storage_html):
+        if name not in KNOWN_MACRO_TYPES:
+            marker = f"{PASSTHROUGH_PREFIX}{counter}"
+            mapping[marker] = xml
+            counter += 1
+
+    return export_html, mapping
+
+
+def serialize_passthrough_footer(mapping):
+    """Generate HTML comment block to append to markdown for passthrough macros."""
+    if not mapping:
+        return ""
+    blocks = []
+    for marker, xml in mapping.items():
+        blocks.append(f"<!-- confluence-passthrough\n{marker}:\n{xml}\n:{marker} -->")
+    return "\n<!-- confluence-passthrough-start -->\n" + "\n".join(blocks) + "\n<!-- confluence-passthrough-stop -->\n"
+
+
+def extract_passthrough_footer(md_text):
+    """Extract passthrough blocks from markdown footer, return (cleaned text, mapping)."""
+    match = re.search(
+        r'\n<!-- confluence-passthrough-start -->\n(.*?)\n<!-- confluence-passthrough-stop -->\n?',
+        md_text,
+        re.DOTALL,
+    )
+    if not match:
+        return md_text, {}
+
+    footer = match.group(1)
+    cleaned = md_text[:match.start()] + md_text[match.end():]
+
+    mapping = {}
+    for block in re.finditer(
+        r'<!-- confluence-passthrough\n(' + re.escape(PASSTHROUGH_PREFIX) + r'\d+):\n(.*?)\n:\1 -->',
+        footer,
+        re.DOTALL,
+    ):
+        mapping[block.group(1)] = block.group(2)
+
+    return cleaned, mapping
+
+
+def restore_passthrough_blocks(html, mapping):
+    """Replace passthrough marker placeholders in HTML with raw storage XML.
+    If a marker isn't found in the body, append the macro at the end."""
+    remaining = []
+    for marker, xml in mapping.items():
+        if f"<p>{marker}</p>" in html:
+            html = html.replace(f"<p>{marker}</p>", xml)
+        elif marker in html:
+            html = html.replace(marker, xml)
+        else:
+            remaining.append(xml)
+    if remaining:
+        html += "\n".join(remaining)
+    return html
 
 
 def preprocess_export_html(html):
@@ -203,6 +310,8 @@ def unescape_html(text):
 
 def md_to_confluence_html(md_text):
     """Convert markdown to Confluence storage format HTML."""
+    # Extract passthrough blocks first
+    md_text, passthrough_mapping = extract_passthrough_footer(md_text)
 
     def _replace_status_md(m):
         title = m.group(1)
@@ -340,6 +449,10 @@ def md_to_confluence_html(md_text):
         html,
         flags=re.DOTALL,
     )
+
+    # Restore passthrough blocks
+    html = restore_passthrough_blocks(html, passthrough_mapping)
+
     return html
 
 
