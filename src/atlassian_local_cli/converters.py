@@ -18,6 +18,24 @@ COLOUR_TO_CONFLUENCE = {
 }
 
 
+_task_placeholder_store = {}
+
+
+def _convert_task_list(inner_html):
+    """Convert Confluence inline-task-list items to markdown checkbox placeholders."""
+    items = re.findall(r'<li[^>]*class="(checked)"[^>]*>(.*?)</li>|<li[^>]*>(.*?)</li>', inner_html, re.DOTALL)
+    lines = []
+    for checked_class, checked_content, unchecked_content in items:
+        if checked_class:
+            text = re.sub(r'<[^>]+>', '', checked_content).strip()
+            lines.append(f"TASK-CHECKED: {text}")
+        else:
+            text = re.sub(r'<[^>]+>', '', unchecked_content).strip()
+            lines.append(f"TASK-UNCHECKED: {text}")
+    # Return as paragraphs so html2text preserves them as separate lines
+    return "<br/>".join(lines)
+
+
 def preprocess_export_html(html):
     """Convert Confluence-specific HTML elements to markdown-friendly tokens before html2text."""
 
@@ -43,6 +61,21 @@ def preprocess_export_html(html):
         html,
     )
 
+    # Dates: <time datetime="2026-03-26" ...>26 Mar 2026</time> → {date:2026-03-26}
+    html = re.sub(
+        r'<time[^>]*datetime="([^"]*)"[^>]*>[^<]*</time>',
+        r"{date:\1}",
+        html,
+    )
+
+    # Task lists: convert inline-task-list to markdown checkboxes
+    html = re.sub(
+        r'<ul[^>]*class="inline-task-list"[^>]*>(.*?)</ul>',
+        lambda m: _convert_task_list(m.group(1)),
+        html,
+        flags=re.DOTALL,
+    )
+
     # Colspan header rows: <th colspan="N">TEXT</th> → || TEXT || marker
     html = re.sub(
         r'<tr[^>]*>\s*<th[^>]*colspan="(\d+)"[^>]*>(.*?)</th>\s*</tr>',
@@ -51,6 +84,13 @@ def preprocess_export_html(html):
     )
 
     return html
+
+
+def postprocess_export_md(md_text):
+    """Convert placeholders back to markdown syntax after html2text."""
+    md_text = re.sub(r'TASK-CHECKED: (.+)', r'- [x] \1', md_text)
+    md_text = re.sub(r'TASK-UNCHECKED: (.+)', r'- [ ] \1', md_text)
+    return md_text
 
 
 def unescape_html(text):
@@ -76,6 +116,31 @@ def md_to_confluence_html(md_text):
         )
 
     md_text = re.sub(r'\{status:([^|]+)\|([^}]+)\}', _replace_status_md, md_text)
+
+    # Convert {date:YYYY-MM-DD} to Confluence date element
+    md_text = re.sub(
+        r'\{date:(\d{4}-\d{2}-\d{2})\}',
+        r'<time datetime="\1" />',
+        md_text,
+    )
+
+    # Convert markdown checkboxes to Confluence task list
+    def _convert_md_tasks(m):
+        block = m.group(0)
+        tasks = []
+        for i, task_match in enumerate(re.finditer(r'- \[([ xX])\] (.+)', block)):
+            checked = task_match.group(1).lower() == "x"
+            text = task_match.group(2)
+            status = "complete" if checked else "incomplete"
+            tasks.append(
+                f'<ac:task><ac:task-id>{i + 1}</ac:task-id>'
+                f'<ac:task-status>{status}</ac:task-status>'
+                f'<ac:task-body><span>{text}</span></ac:task-body>'
+                f'</ac:task>'
+            )
+        return f'<ac:task-list>{"".join(tasks)}</ac:task-list>'
+
+    md_text = re.sub(r'(?:^- \[[ xX]\] .+\n?)+', _convert_md_tasks, md_text, flags=re.MULTILINE)
 
     md_text = re.sub(
         r'(?<!["\w])@(\w+)(?!\w)',

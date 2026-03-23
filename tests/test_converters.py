@@ -1,5 +1,6 @@
 from atlassian_local_cli.converters import (
     md_to_confluence_html,
+    postprocess_export_md,
     preprocess_export_html,
     strip_frontmatter_and_title,
     unescape_html,
@@ -49,6 +50,44 @@ class TestPreprocessExportHtml:
         result = preprocess_export_html(html)
         assert "|| BEFORE THE MIGRATION ||" in result
         assert "colspan" not in result
+
+    def test_date(self):
+        html = '<time datetime="2026-03-26" class="date-upcoming">26 Mar 2026</time>'
+        assert preprocess_export_html(html) == "{date:2026-03-26}"
+
+    def test_task_list_checked(self):
+        html = '<ul class="inline-task-list" data-inline-tasks-content-id="123"><li class="checked" data-inline-task-id="1"><span>Done task</span></li></ul>'
+        result = preprocess_export_html(html)
+        assert "TASK-CHECKED: Done task" in result
+
+    def test_task_list_unchecked(self):
+        html = '<ul class="inline-task-list" data-inline-tasks-content-id="123"><li data-inline-task-id="2"><span>Open task</span></li></ul>'
+        result = preprocess_export_html(html)
+        assert "TASK-UNCHECKED: Open task" in result
+
+    def test_task_list_mixed(self):
+        html = '<ul class="inline-task-list" data-inline-tasks-content-id="123"><li class="checked" data-inline-task-id="1"><span>Done</span></li><li data-inline-task-id="2"><span>Open</span></li></ul>'
+        result = preprocess_export_html(html)
+        assert "TASK-CHECKED: Done" in result
+        assert "TASK-UNCHECKED: Open" in result
+
+
+class TestPostprocessExportMd:
+    def test_checked_task(self):
+        assert postprocess_export_md("TASK-CHECKED: Done task") == "- [x] Done task"
+
+    def test_unchecked_task(self):
+        assert postprocess_export_md("TASK-UNCHECKED: Open task") == "- [ ] Open task"
+
+    def test_mixed_tasks(self):
+        md = "TASK-CHECKED: Done\nTASK-UNCHECKED: Open"
+        result = postprocess_export_md(md)
+        assert "- [x] Done" in result
+        assert "- [ ] Open" in result
+
+    def test_no_tasks(self):
+        md = "plain text"
+        assert postprocess_export_md(md) == "plain text"
 
 
 class TestUnescapeHtml:
@@ -114,6 +153,24 @@ class TestMdToConfluenceHtml:
         assert "ri:username" in result
         assert 'ac:name="status"' in result
         assert 'ac:name="code"' in result
+
+    def test_date_conversion(self):
+        result = md_to_confluence_html("Due: {date:2026-04-15}")
+        assert '<time datetime="2026-04-15" />' in result
+
+    def test_task_list_checked(self):
+        md = "- [x] Done task\n- [ ] Open task"
+        result = md_to_confluence_html(md)
+        assert "<ac:task-list>" in result
+        assert "<ac:task-status>complete</ac:task-status>" in result
+        assert "<ac:task-status>incomplete</ac:task-status>" in result
+        assert "Done task" in result
+        assert "Open task" in result
+
+    def test_task_list_uppercase_x(self):
+        md = "- [X] Done task"
+        result = md_to_confluence_html(md)
+        assert "<ac:task-status>complete</ac:task-status>" in result
 
     def test_colspan_row_in_table(self):
         md = "| A | B |\n|---|---|\n|| SECTION HEADER ||\n| 1 | 2 |"

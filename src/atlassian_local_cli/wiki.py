@@ -4,7 +4,7 @@ import html2text
 
 from .clients import create_confluence
 from .config import get_config
-from .converters import md_to_confluence_html, preprocess_export_html, strip_frontmatter_and_title
+from .converters import md_to_confluence_html, postprocess_export_md, preprocess_export_html, strip_frontmatter_and_title
 
 
 def wiki_export(args):
@@ -31,7 +31,8 @@ def wiki_export(args):
         f"---\n\n"
     )
 
-    content = f"{frontmatter}# {page['title']}\n\n{h.handle(html_content)}"
+    md_body = postprocess_export_md(h.handle(html_content))
+    content = f"{frontmatter}# {page['title']}\n\n{md_body}"
 
     if args.output:
         os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)

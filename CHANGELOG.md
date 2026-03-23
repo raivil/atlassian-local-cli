@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.6.0 (2026-03-23)
+
+### Added
+- Task list support: `- [x]` / `- [ ]` markdown checkboxes convert to/from Confluence `ac:task-list`
+- Date support: `{date:YYYY-MM-DD}` syntax converts to/from Confluence `<time>` elements
+- 76 tests with 100% coverage
+
 ## v0.5.1 (2026-03-20)
 
 ### Fixed
