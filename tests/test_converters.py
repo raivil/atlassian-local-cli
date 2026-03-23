@@ -110,6 +110,15 @@ class TestPreprocessExportHtml:
         assert "{panel:panel}" in result
         assert "Just content" in result
 
+    def test_task_list_in_table_cell(self):
+        html = '<td class="confluenceTd"><ul class="inline-task-list" data-inline-tasks-content-id="123"><li class="checked" data-inline-task-id="1"><span>Done</span></li><li data-inline-task-id="2"><span>Open</span></li></ul></td>'
+        result = preprocess_export_html(html)
+        assert "[x] Done" in result
+        assert "[ ] Open" in result
+        # Should be inline, not markdown checkboxes
+        assert "- [" not in result
+        assert "TASK-" not in result
+
 
 class TestPostprocessExportMd:
     def test_checked_task(self):

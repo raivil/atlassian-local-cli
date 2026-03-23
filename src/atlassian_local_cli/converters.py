@@ -68,7 +68,31 @@ def preprocess_export_html(html):
         html,
     )
 
-    # Task lists: convert inline-task-list to markdown checkboxes
+    # Task lists inside table cells: convert to compact inline format
+    # (markdown checkboxes can't live inside table cells)
+    def _convert_task_list_inline(m):
+        td_before = m.group(1)
+        task_html = m.group(2)
+        td_after = m.group(3)
+        items = re.findall(r'<li[^>]*class="(checked)"[^>]*>(.*?)</li>|<li[^>]*>(.*?)</li>', task_html, re.DOTALL)
+        parts = []
+        for checked_class, checked_content, unchecked_content in items:
+            if checked_class:
+                text = re.sub(r'<[^>]+>', '', checked_content).strip()
+                parts.append(f"[x] {text}")
+            else:
+                text = re.sub(r'<[^>]+>', '', unchecked_content).strip()
+                parts.append(f"[ ] {text}")
+        return f'{td_before}{"; ".join(parts)}{td_after}'
+
+    html = re.sub(
+        r'(<td[^>]*>)(?:\s*<[^>]*>)*\s*<ul[^>]*class="inline-task-list"[^>]*>(.*?)</ul>(?:\s*<[^>]*>)*\s*(</td>)',
+        _convert_task_list_inline,
+        html,
+        flags=re.DOTALL,
+    )
+
+    # Standalone task lists: convert to markdown checkbox placeholders
     html = re.sub(
         r'<ul[^>]*class="inline-task-list"[^>]*>(.*?)</ul>',
         lambda m: _convert_task_list(m.group(1)),
