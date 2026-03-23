@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.8.0 (2026-03-23)
+
+### Added
+- Jira issue embed support: `{jira:PROJ-123}` syntax converts to/from Confluence Jira issue macro
+- Generic panel support: `> {panel:panel|Title}` for Confluence styled panels (in addition to info/note/warning/tip)
+- 90 tests with 100% coverage
+
 ## v0.7.0 (2026-03-23)
 
 ### Added
