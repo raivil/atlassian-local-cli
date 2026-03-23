@@ -93,6 +93,23 @@ class TestPreprocessExportHtml:
         result = preprocess_export_html(html)
         assert "{panel:tip}" in result
 
+    def test_jira_issue_embed(self):
+        html = '<span class="jira-issue" data-jira-key="PROJ-123"><a href="https://jira.example.com/browse/PROJ-123" class="jira-issue-key"><img class="icon" src="$iconUrl"/>PROJ-123</a> - <span class="summary">Test issue</span></span>'
+        result = preprocess_export_html(html)
+        assert result == "{jira:PROJ-123}"
+
+    def test_generic_panel(self):
+        html = '<div class="panel" style="border-width: 1px;"><div class="panelHeader" style="border-bottom-width: 1px;"><b>My Title</b></div><div class="panelContent"><p>Body text</p></div></div>'
+        result = preprocess_export_html(html)
+        assert "PANEL-START: {panel:panel|My Title}" in result
+        assert "PANEL-BODY: Body text" in result
+
+    def test_generic_panel_no_header(self):
+        html = '<div class="panel" style="border-width: 1px;"><div class="panelContent"><p>Just content</p></div></div>'
+        result = preprocess_export_html(html)
+        assert "{panel:panel}" in result
+        assert "Just content" in result
+
 
 class TestPostprocessExportMd:
     def test_checked_task(self):
@@ -221,10 +238,21 @@ class TestMdToConfluenceHtml:
         assert "Danger zone" in result
 
     def test_panel_all_types(self):
-        for ptype in ("info", "note", "warning", "tip"):
+        for ptype in ("info", "note", "warning", "tip", "panel"):
             md = f"> {{panel:{ptype}}}\n> Content"
             result = md_to_confluence_html(md)
             assert f'ac:name="{ptype}"' in result
+
+    def test_jira_issue_embed(self):
+        result = md_to_confluence_html("See {jira:PROJ-123} for details.")
+        assert 'ac:name="jira"' in result
+        assert 'ac:name="key">PROJ-123<' in result
+
+    def test_jira_issue_in_table(self):
+        md = "| Issue | Status |\n|---|---|\n| {jira:PROJ-456} | {status:DONE|green} |"
+        result = md_to_confluence_html(md)
+        assert 'ac:name="jira"' in result
+        assert 'ac:name="status"' in result
 
     def test_colspan_row_in_table(self):
         md = "| A | B |\n|---|---|\n|| SECTION HEADER ||\n| 1 | 2 |"

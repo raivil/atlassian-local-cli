@@ -107,6 +107,33 @@ def preprocess_export_html(html):
         flags=re.DOTALL,
     )
 
+    # Jira issue embeds: <span class="jira-issue" data-jira-key="KEY"> → {jira:KEY}
+    # Use greedy match to consume nested spans (e.g. <span class="summary">)
+    html = re.sub(
+        r'<span[^>]*class="jira-issue"[^>]*data-jira-key="([^"]*)"[^>]*>.*?</span>\s*</span>',
+        r"{jira:\1}",
+        html,
+        flags=re.DOTALL,
+    )
+
+    # Generic panel macro: <div class="panel"...><div class="panelHeader">TITLE</div><div class="panelContent">BODY</div></div>
+    def _replace_generic_panel(m):
+        title_html = m.group(1) or ""
+        body_html = m.group(2)
+        title = re.sub(r'<[^>]+>', '', title_html).strip()
+        body = re.sub(r'<[^>]+>', '', body_html).strip()
+        header = f"{{panel:panel|{title}}}" if title else "{panel:panel}"
+        return f"PANEL-START: {header}<br/>PANEL-BODY: {body}<br/>PANEL-END"
+
+    html = re.sub(
+        r'<div[^>]*class="panel"[^>]*>'
+        r'(?:<div[^>]*class="panelHeader"[^>]*>(.*?)</div>)?'
+        r'\s*<div[^>]*class="panelContent"[^>]*>(.*?)</div>\s*</div>',
+        _replace_generic_panel,
+        html,
+        flags=re.DOTALL,
+    )
+
     # Colspan header rows: <th colspan="N">TEXT</th> → || TEXT || marker
     html = re.sub(
         r'<tr[^>]*>\s*<th[^>]*colspan="(\d+)"[^>]*>(.*?)</th>\s*</tr>',
@@ -164,6 +191,13 @@ def md_to_confluence_html(md_text):
         )
 
     md_text = re.sub(r'\{status:([^|]+)\|([^}]+)\}', _replace_status_md, md_text)
+
+    # Convert {jira:KEY} to Confluence Jira issue macro
+    md_text = re.sub(
+        r'\{jira:([A-Z]+-\d+)\}',
+        r'<ac:structured-macro ac:name="jira"><ac:parameter ac:name="key">\1</ac:parameter></ac:structured-macro>',
+        md_text,
+    )
 
     # Convert {date:YYYY-MM-DD} to Confluence date element
     md_text = re.sub(
