@@ -1,6 +1,6 @@
 import argparse
 
-from .jira_commands import jira_create, jira_get, jira_my_tasks, jira_transition
+from .jira_commands import jira_create, jira_get, jira_link_epic, jira_my_tasks, jira_transition
 from .wiki import wiki_create, wiki_export, wiki_update
 
 
@@ -33,7 +33,13 @@ def main():
     p.add_argument("--description-file", help="Read description from file (use '-' for stdin)")
     p.add_argument("--priority", help="Priority (Highest, High, Medium, Low, Lowest)")
     p.add_argument("--assignee", help="Username to assign")
+    p.add_argument("--epic", help="Epic issue key to link this issue to (e.g. PROJ-100)")
     p.set_defaults(func=jira_create)
+
+    p = subparsers.add_parser("jira-link-epic", help="Link existing issues to an Epic")
+    p.add_argument("issue_keys", nargs="+", help="Issue keys to link (e.g. PROJ-200 PROJ-201)")
+    p.add_argument("--epic", required=True, help="Epic issue key (e.g. PROJ-100)")
+    p.set_defaults(func=jira_link_epic)
 
     p = subparsers.add_parser("jira-get", help="Display a Jira issue")
     p.add_argument("issue_key", help="Issue key (e.g. PROJ-123)")

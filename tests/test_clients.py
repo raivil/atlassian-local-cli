@@ -24,6 +24,8 @@ class TestCreateConfluence:
             wiki_token="bearer-token",
             jira_url=None,
             jira_token=None,
+            jira_epic_name_field=None,
+            jira_epic_link_field=None,
         )
         create_confluence(config)
         _, kwargs = mock_cls.call_args
@@ -38,6 +40,8 @@ class TestCreateConfluence:
             wiki_token=None,
             jira_url=None,
             jira_token=None,
+            jira_epic_name_field=None,
+            jira_epic_link_field=None,
         )
         with pytest.raises(SystemExit):
             create_confluence(config)
@@ -58,6 +62,8 @@ class TestCreateJira:
             wiki_token=None,
             jira_url=None,
             jira_token="token",
+            jira_epic_name_field=None,
+            jira_epic_link_field=None,
         )
         with pytest.raises(SystemExit):
             create_jira(config)
@@ -69,6 +75,8 @@ class TestCreateJira:
             wiki_token=None,
             jira_url="https://jira.test.com/",
             jira_token=None,
+            jira_epic_name_field=None,
+            jira_epic_link_field=None,
         )
         with pytest.raises(SystemExit):
             create_jira(config)

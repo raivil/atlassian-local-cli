@@ -5,6 +5,40 @@ from .clients import create_jira
 from .config import get_config
 
 
+_epic_fields_cache = {}
+
+
+def _get_epic_fields(jira):
+    """Auto-detect Epic custom field IDs, with env var overrides."""
+    if _epic_fields_cache:
+        return _epic_fields_cache
+
+    config = get_config()
+    epic_name_field = config.jira_epic_name_field
+    epic_link_field = config.jira_epic_link_field
+
+    if not epic_name_field or not epic_link_field:
+        fields = jira.get_all_fields()
+        for f in fields:
+            name = f.get("name", "").lower()
+            fid = f["id"]
+            if not epic_name_field and name == "epic name":
+                epic_name_field = fid
+            if not epic_link_field and name == "epic link":
+                epic_link_field = fid
+
+    if not epic_name_field:
+        print("Error: Could not detect Epic Name field. Set JIRA_EPIC_NAME_FIELD in .env.", file=sys.stderr)
+        sys.exit(1)
+    if not epic_link_field:
+        print("Error: Could not detect Epic Link field. Set JIRA_EPIC_LINK_FIELD in .env.", file=sys.stderr)
+        sys.exit(1)
+
+    _epic_fields_cache["name"] = epic_name_field
+    _epic_fields_cache["link"] = epic_link_field
+    return _epic_fields_cache
+
+
 def build_jql(status="open", status_name=None, issue_type=None, project=None):
     """Build JQL query from filter parameters."""
     conditions = ["assignee = currentUser()"]
@@ -44,6 +78,8 @@ def _resolve_description(args):
 def jira_create(args):
     description = _resolve_description(args)
 
+    jira = create_jira()
+
     fields = {
         "project": {"key": args.project},
         "summary": args.summary,
@@ -56,13 +92,31 @@ def jira_create(args):
     if args.assignee:
         fields["assignee"] = {"name": args.assignee}
 
-    jira = create_jira()
+    # Epic-specific fields
+    if args.type == "Epic":
+        epic_fields = _get_epic_fields(jira)
+        fields[epic_fields["name"]] = args.summary
+
+    if hasattr(args, "epic") and args.epic:
+        epic_fields = _get_epic_fields(jira)
+        fields[epic_fields["link"]] = args.epic
+
     result = jira.issue_create(fields=fields)
 
     issue_key = result["key"]
     config = get_config()
     print(f"Created {issue_key}: {args.summary}")
     print(f"{config.jira_url.rstrip('/')}/browse/{issue_key}")
+
+
+def jira_link_epic(args):
+    jira = create_jira()
+    epic_fields = _get_epic_fields(jira)
+    link_field = epic_fields["link"]
+
+    for issue_key in args.issue_keys:
+        jira.issue_update(issue_key, {"fields": {link_field: args.epic}})
+        print(f"Linked {issue_key} \u2192 {args.epic}")
 
 
 def jira_get(args):

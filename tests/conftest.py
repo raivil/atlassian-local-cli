@@ -19,4 +19,6 @@ def mock_config():
         wiki_token="test-token",
         jira_url="https://jira.test.com/",
         jira_token="jira-test-token",
+        jira_epic_name_field=None,
+        jira_epic_link_field=None,
     )

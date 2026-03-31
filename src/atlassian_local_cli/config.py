@@ -14,6 +14,8 @@ class Config:
     wiki_token: str | None
     jira_url: str | None
     jira_token: str | None
+    jira_epic_name_field: str | None
+    jira_epic_link_field: str | None
 
 
 _config: Config | None = None
@@ -27,6 +29,8 @@ def load_config(env_file: Path | None = None) -> Config:
         wiki_token=os.getenv("WIKI_TOKEN"),
         jira_url=os.getenv("JIRA_URL"),
         jira_token=os.getenv("JIRA_TOKEN"),
+        jira_epic_name_field=os.getenv("JIRA_EPIC_NAME_FIELD"),
+        jira_epic_link_field=os.getenv("JIRA_EPIC_LINK_FIELD"),
     )
 
 

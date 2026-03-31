@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.2.0 (2026-03-31)
+
+### Added
+- Epic support: `jira-create --type Epic` auto-sets the Epic Name field
+- `--epic PROJ-100` flag on `jira-create` to link new issues to an Epic
+- `jira-link-epic` command to assign existing issues to an Epic (supports multiple issues)
+- Auto-detection of Epic custom field IDs from Jira API, with env var overrides (`JIRA_EPIC_NAME_FIELD`, `JIRA_EPIC_LINK_FIELD`)
+- 119 tests with 100% coverage
+
 ## v1.1.0 (2026-03-31)
 
 ### Added

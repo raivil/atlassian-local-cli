@@ -5,12 +5,80 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from atlassian_local_cli.jira_commands import (
+    _epic_fields_cache,
+    _get_epic_fields,
     build_jql,
     jira_create,
     jira_get,
+    jira_link_epic,
     jira_my_tasks,
     jira_transition,
 )
+
+
+@pytest.fixture(autouse=True)
+def _clear_epic_cache():
+    _epic_fields_cache.clear()
+    yield
+    _epic_fields_cache.clear()
+
+
+MOCK_FIELDS = [
+    {"id": "customfield_10004", "name": "Epic Name"},
+    {"id": "customfield_10008", "name": "Epic Link"},
+    {"id": "summary", "name": "Summary"},
+]
+
+
+class TestGetEpicFields:
+    @patch("atlassian_local_cli.jira_commands.get_config")
+    def test_auto_detect(self, mock_config):
+        mock_config.return_value = MagicMock(jira_epic_name_field=None, jira_epic_link_field=None)
+        mock_jira = MagicMock()
+        mock_jira.get_all_fields.return_value = MOCK_FIELDS
+
+        result = _get_epic_fields(mock_jira)
+        assert result["name"] == "customfield_10004"
+        assert result["link"] == "customfield_10008"
+
+    @patch("atlassian_local_cli.jira_commands.get_config")
+    def test_env_override(self, mock_config):
+        mock_config.return_value = MagicMock(jira_epic_name_field="cf_100", jira_epic_link_field="cf_200")
+        mock_jira = MagicMock()
+
+        result = _get_epic_fields(mock_jira)
+        assert result["name"] == "cf_100"
+        assert result["link"] == "cf_200"
+        mock_jira.get_all_fields.assert_not_called()
+
+    @patch("atlassian_local_cli.jira_commands.get_config")
+    def test_caches_result(self, mock_config):
+        mock_config.return_value = MagicMock(jira_epic_name_field="cf_1", jira_epic_link_field="cf_2")
+        mock_jira = MagicMock()
+
+        result1 = _get_epic_fields(mock_jira)
+        result2 = _get_epic_fields(mock_jira)
+        assert result1 is result2
+
+    @patch("atlassian_local_cli.jira_commands.get_config")
+    def test_missing_epic_name_exits(self, mock_config):
+        mock_config.return_value = MagicMock(jira_epic_name_field=None, jira_epic_link_field=None)
+        mock_jira = MagicMock()
+        mock_jira.get_all_fields.return_value = [{"id": "summary", "name": "Summary"}]
+
+        with pytest.raises(SystemExit):
+            _get_epic_fields(mock_jira)
+
+    @patch("atlassian_local_cli.jira_commands.get_config")
+    def test_missing_epic_link_exits(self, mock_config):
+        mock_config.return_value = MagicMock(jira_epic_name_field=None, jira_epic_link_field=None)
+        mock_jira = MagicMock()
+        mock_jira.get_all_fields.return_value = [
+            {"id": "customfield_10004", "name": "Epic Name"},
+        ]
+
+        with pytest.raises(SystemExit):
+            _get_epic_fields(mock_jira)
 
 
 class TestBuildJql:
@@ -268,7 +336,89 @@ class TestJiraCreate:
         args = Namespace(
             project="PROJ", summary="Test", type="Task",
             description="inline", description_file="file.md",
-            priority=None, assignee=None,
+            priority=None, assignee=None, epic=None,
         )
         with pytest.raises(SystemExit):
             jira_create(args)
+
+    @patch("atlassian_local_cli.jira_commands.get_config")
+    @patch("atlassian_local_cli.jira_commands.create_jira")
+    def test_create_epic(self, mock_create, mock_config):
+        mock_config.return_value = MagicMock(
+            jira_url="https://jira.test.com/",
+            jira_epic_name_field="customfield_10004",
+            jira_epic_link_field="customfield_10008",
+        )
+        mock_jira = MagicMock()
+        mock_jira.issue_create.return_value = {"key": "PROJ-200"}
+        mock_create.return_value = mock_jira
+
+        args = Namespace(
+            project="PROJ", summary="Auth Rewrite", type="Epic",
+            description=None, description_file=None,
+            priority=None, assignee=None, epic=None,
+        )
+        jira_create(args)
+
+        fields = mock_jira.issue_create.call_args[1]["fields"]
+        assert fields["issuetype"] == {"name": "Epic"}
+        assert fields["customfield_10004"] == "Auth Rewrite"
+
+    @patch("atlassian_local_cli.jira_commands.get_config")
+    @patch("atlassian_local_cli.jira_commands.create_jira")
+    def test_create_with_epic_link(self, mock_create, mock_config):
+        mock_config.return_value = MagicMock(
+            jira_url="https://jira.test.com/",
+            jira_epic_name_field="customfield_10004",
+            jira_epic_link_field="customfield_10008",
+        )
+        mock_jira = MagicMock()
+        mock_jira.issue_create.return_value = {"key": "PROJ-201"}
+        mock_create.return_value = mock_jira
+
+        args = Namespace(
+            project="PROJ", summary="Add MFA", type="Story",
+            description=None, description_file=None,
+            priority=None, assignee=None, epic="PROJ-200",
+        )
+        jira_create(args)
+
+        fields = mock_jira.issue_create.call_args[1]["fields"]
+        assert fields["customfield_10008"] == "PROJ-200"
+
+
+class TestJiraLinkEpic:
+    @patch("atlassian_local_cli.jira_commands.get_config")
+    @patch("atlassian_local_cli.jira_commands.create_jira")
+    def test_link_single_issue(self, mock_create, mock_config, capsys):
+        mock_config.return_value = MagicMock(
+            jira_epic_name_field="customfield_10004",
+            jira_epic_link_field="customfield_10008",
+        )
+        mock_jira = MagicMock()
+        mock_create.return_value = mock_jira
+
+        jira_link_epic(Namespace(issue_keys=["PROJ-201"], epic="PROJ-200"))
+
+        mock_jira.issue_update.assert_called_once_with(
+            "PROJ-201", {"fields": {"customfield_10008": "PROJ-200"}}
+        )
+        assert "PROJ-201" in capsys.readouterr().out
+
+    @patch("atlassian_local_cli.jira_commands.get_config")
+    @patch("atlassian_local_cli.jira_commands.create_jira")
+    def test_link_multiple_issues(self, mock_create, mock_config, capsys):
+        mock_config.return_value = MagicMock(
+            jira_epic_name_field="customfield_10004",
+            jira_epic_link_field="customfield_10008",
+        )
+        mock_jira = MagicMock()
+        mock_create.return_value = mock_jira
+
+        jira_link_epic(Namespace(issue_keys=["PROJ-201", "PROJ-202", "PROJ-203"], epic="PROJ-200"))
+
+        assert mock_jira.issue_update.call_count == 3
+        output = capsys.readouterr().out
+        assert "PROJ-201" in output
+        assert "PROJ-202" in output
+        assert "PROJ-203" in output
