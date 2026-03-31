@@ -1,6 +1,6 @@
 import argparse
 
-from .jira_commands import jira_get, jira_my_tasks, jira_transition
+from .jira_commands import jira_create, jira_get, jira_my_tasks, jira_transition
 from .wiki import wiki_create, wiki_export, wiki_update
 
 
@@ -24,6 +24,16 @@ def main():
     p.add_argument("input_file", help="Markdown file with page content")
     p.add_argument("--parent", help="Parent page ID (optional)")
     p.set_defaults(func=wiki_create)
+
+    p = subparsers.add_parser("jira-create", help="Create a new Jira issue")
+    p.add_argument("--project", required=True, help="Project key (e.g. PROJ)")
+    p.add_argument("--summary", required=True, help="Issue summary/title")
+    p.add_argument("--type", default="Task", help="Issue type (default: Task)")
+    p.add_argument("--description", help="Inline description")
+    p.add_argument("--description-file", help="Read description from file (use '-' for stdin)")
+    p.add_argument("--priority", help="Priority (Highest, High, Medium, Low, Lowest)")
+    p.add_argument("--assignee", help="Username to assign")
+    p.set_defaults(func=jira_create)
 
     p = subparsers.add_parser("jira-get", help="Display a Jira issue")
     p.add_argument("issue_key", help="Issue key (e.g. PROJ-123)")

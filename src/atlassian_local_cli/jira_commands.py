@@ -2,6 +2,7 @@ import json
 import sys
 
 from .clients import create_jira
+from .config import get_config
 
 
 def build_jql(status="open", status_name=None, issue_type=None, project=None):
@@ -23,6 +24,45 @@ def build_jql(status="open", status_name=None, issue_type=None, project=None):
         conditions.append(f'project = "{project}"')
 
     return " AND ".join(conditions) + " ORDER BY priority DESC, updated DESC"
+
+
+def _resolve_description(args):
+    """Resolve description from --description or --description-file (supports stdin via '-')."""
+    if args.description and args.description_file:
+        print("Error: --description and --description-file are mutually exclusive.", file=sys.stderr)
+        sys.exit(1)
+
+    if args.description_file:
+        if args.description_file == "-":
+            return sys.stdin.read()
+        with open(args.description_file, "r", encoding="utf-8") as f:
+            return f.read()
+
+    return args.description
+
+
+def jira_create(args):
+    description = _resolve_description(args)
+
+    fields = {
+        "project": {"key": args.project},
+        "summary": args.summary,
+        "issuetype": {"name": args.type},
+    }
+    if description:
+        fields["description"] = description
+    if args.priority:
+        fields["priority"] = {"name": args.priority}
+    if args.assignee:
+        fields["assignee"] = {"name": args.assignee}
+
+    jira = create_jira()
+    result = jira.issue_create(fields=fields)
+
+    issue_key = result["key"]
+    config = get_config()
+    print(f"Created {issue_key}: {args.summary}")
+    print(f"{config.jira_url.rstrip('/')}/browse/{issue_key}")
 
 
 def jira_get(args):

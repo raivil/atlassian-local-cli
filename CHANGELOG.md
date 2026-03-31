@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.1.0 (2026-03-31)
+
+### Added
+- `jira-create` command to create Jira issues from the CLI
+- Multiline description support via `--description-file` (reads from file or stdin with `-`)
+- `--description` and `--description-file` are mutually exclusive
+- Optional `--priority` and `--assignee` flags
+- `make jira-create` target
+- 110 tests with 100% coverage
+
 ## v1.0.1 (2026-03-23)
 
 ### Fixed

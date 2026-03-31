@@ -6,6 +6,7 @@ import pytest
 
 from atlassian_local_cli.jira_commands import (
     build_jql,
+    jira_create,
     jira_get,
     jira_my_tasks,
     jira_transition,
@@ -173,3 +174,101 @@ class TestJiraTransition:
 
         with pytest.raises(SystemExit):
             jira_transition(Namespace(issue_key="PROJ-1", status="invalid"))
+
+
+class TestJiraCreate:
+    @patch("atlassian_local_cli.jira_commands.get_config")
+    @patch("atlassian_local_cli.jira_commands.create_jira")
+    def test_basic_create(self, mock_create, mock_config, capsys):
+        mock_config.return_value = MagicMock(jira_url="https://jira.test.com/")
+        mock_jira = MagicMock()
+        mock_jira.issue_create.return_value = {"key": "PROJ-99"}
+        mock_create.return_value = mock_jira
+
+        args = Namespace(
+            project="PROJ", summary="New task", type="Task",
+            description="Short desc", description_file=None,
+            priority=None, assignee=None,
+        )
+        jira_create(args)
+        output = capsys.readouterr().out
+        assert "PROJ-99" in output
+        assert "New task" in output
+
+        fields = mock_jira.issue_create.call_args[1]["fields"]
+        assert fields["project"] == {"key": "PROJ"}
+        assert fields["summary"] == "New task"
+        assert fields["description"] == "Short desc"
+
+    @patch("atlassian_local_cli.jira_commands.get_config")
+    @patch("atlassian_local_cli.jira_commands.create_jira")
+    def test_with_priority_and_assignee(self, mock_create, mock_config):
+        mock_config.return_value = MagicMock(jira_url="https://jira.test.com/")
+        mock_jira = MagicMock()
+        mock_jira.issue_create.return_value = {"key": "PROJ-100"}
+        mock_create.return_value = mock_jira
+
+        args = Namespace(
+            project="PROJ", summary="Bug", type="Bug",
+            description=None, description_file=None,
+            priority="High", assignee="jdoe",
+        )
+        jira_create(args)
+
+        fields = mock_jira.issue_create.call_args[1]["fields"]
+        assert fields["priority"] == {"name": "High"}
+        assert fields["assignee"] == {"name": "jdoe"}
+        assert "description" not in fields
+
+    @patch("atlassian_local_cli.jira_commands.get_config")
+    @patch("atlassian_local_cli.jira_commands.create_jira")
+    def test_description_from_file(self, mock_create, mock_config, tmp_path):
+        mock_config.return_value = MagicMock(jira_url="https://jira.test.com/")
+        mock_jira = MagicMock()
+        mock_jira.issue_create.return_value = {"key": "PROJ-101"}
+        mock_create.return_value = mock_jira
+
+        desc_file = tmp_path / "desc.md"
+        desc_file.write_text("Line 1\n\nLine 2\n\n- bullet\n- items")
+
+        args = Namespace(
+            project="PROJ", summary="From file", type="Task",
+            description=None, description_file=str(desc_file),
+            priority=None, assignee=None,
+        )
+        jira_create(args)
+
+        fields = mock_jira.issue_create.call_args[1]["fields"]
+        assert "Line 1" in fields["description"]
+        assert "Line 2" in fields["description"]
+        assert "- bullet" in fields["description"]
+
+    @patch("atlassian_local_cli.jira_commands.get_config")
+    @patch("atlassian_local_cli.jira_commands.create_jira")
+    def test_description_from_stdin(self, mock_create, mock_config, monkeypatch):
+        mock_config.return_value = MagicMock(jira_url="https://jira.test.com/")
+        mock_jira = MagicMock()
+        mock_jira.issue_create.return_value = {"key": "PROJ-102"}
+        mock_create.return_value = mock_jira
+
+        import io
+        monkeypatch.setattr("sys.stdin", io.StringIO("Piped\nmultiline\ncontent"))
+
+        args = Namespace(
+            project="PROJ", summary="From stdin", type="Task",
+            description=None, description_file="-",
+            priority=None, assignee=None,
+        )
+        jira_create(args)
+
+        fields = mock_jira.issue_create.call_args[1]["fields"]
+        assert "Piped\nmultiline\ncontent" == fields["description"]
+
+    def test_description_and_file_mutually_exclusive(self):
+        args = Namespace(
+            project="PROJ", summary="Test", type="Task",
+            description="inline", description_file="file.md",
+            priority=None, assignee=None,
+        )
+        with pytest.raises(SystemExit):
+            jira_create(args)

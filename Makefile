@@ -1,4 +1,4 @@
-.PHONY: setup build clean test test-cov wiki-export wiki-update wiki-create jira-get jira-my-tasks jira-transition
+.PHONY: setup build clean test test-cov wiki-export wiki-update wiki-create jira-create jira-get jira-my-tasks jira-transition
 
 setup: ## Install dependencies and create venv
 	uv sync
@@ -29,6 +29,11 @@ wiki-create: ## Create a wiki page. Usage: make wiki-create SPACE=<key> TITLE="<
 	@if [ -z "$(TITLE)" ]; then echo "Error: TITLE is required."; exit 1; fi
 	@if [ -z "$(INPUT)" ]; then echo "Error: INPUT is required."; exit 1; fi
 	uv run atlassian-local-cli wiki-create $(SPACE) "$(TITLE)" $(INPUT) $(if $(PARENT),--parent $(PARENT))
+
+jira-create: ## Create a Jira issue. Usage: make jira-create PROJECT=<key> SUMMARY="<text>" [TYPE=Task] [PRIORITY=High] [ASSIGNEE=user] [DESCRIPTION="<text>"] [DESC_FILE=<file>]
+	@if [ -z "$(PROJECT)" ]; then echo "Error: PROJECT is required."; exit 1; fi
+	@if [ -z "$(SUMMARY)" ]; then echo "Error: SUMMARY is required."; exit 1; fi
+	uv run atlassian-local-cli jira-create --project $(PROJECT) --summary "$(SUMMARY)" $(if $(TYPE),--type $(TYPE)) $(if $(PRIORITY),--priority $(PRIORITY)) $(if $(ASSIGNEE),--assignee $(ASSIGNEE)) $(if $(DESCRIPTION),--description "$(DESCRIPTION)") $(if $(DESC_FILE),--description-file $(DESC_FILE))
 
 jira-get: ## Get a Jira issue. Usage: make jira-get ISSUE=<key>
 	@if [ -z "$(ISSUE)" ]; then echo "Error: ISSUE is required."; exit 1; fi
