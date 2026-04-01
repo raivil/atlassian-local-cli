@@ -207,6 +207,22 @@ def preprocess_export_html(html):
         flags=re.DOTALL,
     )
 
+    # Expand/collapse sections — process BEFORE panels to prevent panels from consuming expand content.
+    # Uses BeautifulSoup for reliable nested div handling.
+    soup = BeautifulSoup(html, "html.parser")
+    expand_counter = [0]
+    for container in soup.find_all("div", class_="expand-container"):
+        title_span = container.find("span", class_="expand-control-text")
+        content_div = container.find("div", class_="expand-content")
+        if title_span and content_div:
+            title = title_span.get_text(strip=True)
+            body = re.sub(r'<[^>]+>', '', content_div.decode_contents()).strip()
+            marker = f"EXPAND-START: {title}<br/>EXPAND-BODY: {body}<br/>EXPAND-END"
+            container.replace_with(BeautifulSoup(marker, "html.parser"))
+            expand_counter[0] += 1
+    if expand_counter[0]:
+        html = str(soup)
+
     # Info/note/warning/tip panels
     _MACRO_TYPE_MAP = {
         "information": "info",
@@ -264,21 +280,6 @@ def preprocess_export_html(html):
         html,
         flags=re.DOTALL,
     )
-
-    # Expand/collapse sections — use BeautifulSoup for reliable nested div handling
-    soup = BeautifulSoup(html, "html.parser")
-    expand_counter = [0]
-    for container in soup.find_all("div", class_="expand-container"):
-        title_span = container.find("span", class_="expand-control-text")
-        content_div = container.find("div", class_="expand-content")
-        if title_span and content_div:
-            title = title_span.get_text(strip=True)
-            body = re.sub(r'<[^>]+>', '', content_div.decode_contents()).strip()
-            marker = f"EXPAND-START: {title}<br/>EXPAND-BODY: {body}<br/>EXPAND-END"
-            container.replace_with(BeautifulSoup(marker, "html.parser"))
-            expand_counter[0] += 1
-    if expand_counter[0]:
-        html = str(soup)
 
     # Colspan header rows: <th colspan="N">TEXT</th> → || TEXT || marker
     html = re.sub(
