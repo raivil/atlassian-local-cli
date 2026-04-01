@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.3.1 (2026-04-01)
+
+### Fixed
+- Expand sections no longer get captured inside adjacent panels — expand preprocessing now runs before panel preprocessing
+
 ## v1.3.0 (2026-04-01)
 
 ### Added
