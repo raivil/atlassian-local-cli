@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.3.0 (2026-04-01)
+
+### Added
+- Expand/collapse section support: `<details><summary>Title</summary>` syntax converts to/from Confluence `expand` macro
+- 123 tests with 100% coverage
+
 ## v1.2.0 (2026-03-31)
 
 ### Added

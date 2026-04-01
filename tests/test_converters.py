@@ -114,6 +114,12 @@ class TestPreprocessExportHtml:
         assert "{panel:panel}" in result
         assert "Just content" in result
 
+    def test_expand_section(self):
+        html = '<div class="expand-container"><div class="expand-control"><button><span class="expand-control-text conf-macro-render">Click to expand</span></button></div><div class="expand-content" role="region"><p>Hidden content</p></div></div>'
+        result = preprocess_export_html(html)
+        assert "EXPAND-START: Click to expand" in result
+        assert "EXPAND-BODY: Hidden content" in result
+
     def test_task_list_in_table_cell(self):
         html = '<td class="confluenceTd"><ul class="inline-task-list" data-inline-tasks-content-id="123"><li class="checked" data-inline-task-id="1"><span>Done</span></li><li data-inline-task-id="2"><span>Open</span></li></ul></td>'
         result = preprocess_export_html(html)
@@ -153,9 +159,17 @@ class TestPostprocessExportMd:
         assert "> {panel:warning}" in result
         assert "> Warning!" in result
 
+    def test_expand_placeholder(self):
+        md = "EXPAND-START: My Title\nEXPAND-BODY: Hidden stuff\nEXPAND-END"
+        result = postprocess_export_md(md)
+        assert "<details>" in result
+        assert "<summary>My Title</summary>" in result
+        assert "Hidden stuff" in result
+        assert "</details>" in result
+
 
 class TestPassthrough:
-    UNKNOWN_MACRO = '<ac:structured-macro ac:name="expand"><ac:parameter ac:name="title">Details</ac:parameter><ac:rich-text-body><p>Hidden content</p></ac:rich-text-body></ac:structured-macro>'
+    UNKNOWN_MACRO = '<ac:structured-macro ac:name="cheese"><ac:parameter ac:name="title">Details</ac:parameter><ac:rich-text-body><p>Hidden content</p></ac:rich-text-body></ac:structured-macro>'
     NESTED_MACRO = '<ac:structured-macro ac:name="details"><ac:rich-text-body><ac:structured-macro ac:name="status"><ac:parameter ac:name="title">OK</ac:parameter></ac:structured-macro></ac:rich-text-body></ac:structured-macro>'
 
     def test_extract_unknown_macros(self):
@@ -229,7 +243,7 @@ class TestPassthrough:
         footer = serialize_passthrough_footer(mapping)
         md = f"Some content\n\nCONFLUENCE-PASSTHROUGH-0\n{footer}"
         result = md_to_confluence_html(md)
-        assert 'ac:name="expand"' in result
+        assert 'ac:name="cheese"' in result
         assert "Hidden content" in result
 
 
@@ -328,6 +342,19 @@ class TestMdToConfluenceHtml:
         assert 'ac:name="warning"' in result
         assert "ac:name=\"title\"" not in result
         assert "Danger zone" in result
+
+    def test_expand_to_confluence(self):
+        md = "<details>\n<summary>Click me</summary>\n\nHidden content here\n\n</details>"
+        result = md_to_confluence_html(md)
+        assert 'ac:name="expand"' in result
+        assert 'ac:name="title">Click me<' in result
+        assert "Hidden content here" in result
+        assert "<details>" not in result
+
+    def test_expand_not_wrapped_in_p(self):
+        md = "Before\n\n<details>\n<summary>Title</summary>\n\nBody\n\n</details>\n\nAfter"
+        result = md_to_confluence_html(md)
+        assert "<p><ac:structured-macro" not in result
 
     def test_panel_not_wrapped_in_p_tag(self):
         md = "> {panel:info|Title}\n> Content here"

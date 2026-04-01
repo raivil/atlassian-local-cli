@@ -4,7 +4,7 @@ from collections import defaultdict
 import markdown as md_lib
 from bs4 import BeautifulSoup
 
-KNOWN_MACRO_TYPES = {"status", "code", "info", "note", "warning", "tip", "panel", "jira"}
+KNOWN_MACRO_TYPES = {"status", "code", "info", "note", "warning", "tip", "panel", "jira", "expand"}
 PASSTHROUGH_PREFIX = "CONFLUENCE-PASSTHROUGH-"
 
 LOZENGE_TO_COLOUR = {
@@ -265,6 +265,21 @@ def preprocess_export_html(html):
         flags=re.DOTALL,
     )
 
+    # Expand/collapse sections — use BeautifulSoup for reliable nested div handling
+    soup = BeautifulSoup(html, "html.parser")
+    expand_counter = [0]
+    for container in soup.find_all("div", class_="expand-container"):
+        title_span = container.find("span", class_="expand-control-text")
+        content_div = container.find("div", class_="expand-content")
+        if title_span and content_div:
+            title = title_span.get_text(strip=True)
+            body = re.sub(r'<[^>]+>', '', content_div.decode_contents()).strip()
+            marker = f"EXPAND-START: {title}<br/>EXPAND-BODY: {body}<br/>EXPAND-END"
+            container.replace_with(BeautifulSoup(marker, "html.parser"))
+            expand_counter[0] += 1
+    if expand_counter[0]:
+        html = str(soup)
+
     # Colspan header rows: <th colspan="N">TEXT</th> → || TEXT || marker
     html = re.sub(
         r'<tr[^>]*>\s*<th[^>]*colspan="(\d+)"[^>]*>(.*?)</th>\s*</tr>',
@@ -292,6 +307,19 @@ def postprocess_export_md(md_text):
     md_text = re.sub(
         r'PANEL-START: (.+?)[\s]*PANEL-BODY: (.+?)[\s]*PANEL-END',
         _restore_panel,
+        md_text,
+        flags=re.DOTALL,
+    )
+
+    # Expand placeholders → <details> syntax
+    def _restore_expand(m):
+        title = m.group(1).strip()
+        body = m.group(2).strip()
+        return f"<details>\n<summary>{title}</summary>\n\n{body}\n\n</details>"
+
+    md_text = re.sub(
+        r'EXPAND-START: (.+?)[\s]*EXPAND-BODY: (.+?)[\s]*EXPAND-END',
+        _restore_expand,
         md_text,
         flags=re.DOTALL,
     )
@@ -337,6 +365,25 @@ def md_to_confluence_html(md_text):
         r'\{date:(\d{4}-\d{2}-\d{2})\}',
         r'<time datetime="\1" />',
         md_text,
+    )
+
+    # Extract <details> blocks before markdown parsing
+    expand_blocks = {}
+    expand_counter = [0]
+
+    def _extract_details(m):
+        title = m.group(1).strip()
+        body = m.group(2).strip()
+        key = f"EXPAND-BLOCK-{expand_counter[0]}"
+        expand_blocks[key] = (title, body)
+        expand_counter[0] += 1
+        return key
+
+    md_text = re.sub(
+        r'<details>\s*<summary>(.*?)</summary>(.*?)</details>',
+        _extract_details,
+        md_text,
+        flags=re.DOTALL,
     )
 
     # Extract panel blocks before markdown parsing (to avoid md parser wrapping XML in <p> tags).
@@ -460,6 +507,18 @@ def md_to_confluence_html(md_text):
         )
         html = html.replace(f"<p>{key}</p>", panel_xml)
         html = html.replace(key, panel_xml)
+
+    # Restore expand block placeholders with actual XML
+    for key, (title, body) in expand_blocks.items():
+        body_html = md_lib.markdown(body, extensions=["tables", "fenced_code"]) if body else ""
+        expand_xml = (
+            f'<ac:structured-macro ac:name="expand">'
+            f'<ac:parameter ac:name="title">{title}</ac:parameter>'
+            f'<ac:rich-text-body>{body_html}</ac:rich-text-body>'
+            f'</ac:structured-macro>'
+        )
+        html = html.replace(f"<p>{key}</p>", expand_xml)
+        html = html.replace(key, expand_xml)
 
     # Restore passthrough blocks
     html = restore_passthrough_blocks(html, passthrough_mapping)
