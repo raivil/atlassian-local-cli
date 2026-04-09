@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.4.0 (2026-04-09)
+
+### Added
+- Local image upload: `![alt](./pic.png)` in markdown uploads the file as a page attachment and rewrites to `<ac:image><ri:attachment ri:filename="pic.png"/></ac:image>`. External URLs (`http://`, `https://`, `data:`) are left untouched. Paths resolve relative to the input markdown file.
+- `[TOC]` marker converts to/from the Confluence `toc` macro on upload and export.
+- `<iframe>...</iframe>` tags in markdown are wrapped in the Confluence `html` macro on upload.
+- Markdown footnotes (`[^1]`) now render via the `footnotes` extension on upload.
+- 137 tests with 100% coverage
+
+### Fixed
+- Code blocks containing `]]>` no longer produce invalid storage XML — the sequence is now escaped by splitting and reopening the CDATA section.
+
 ## v1.3.1 (2026-04-01)
 
 ### Fixed

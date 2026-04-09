@@ -9,6 +9,7 @@ from .converters import (
     md_to_confluence_html,
     postprocess_export_md,
     preprocess_export_html,
+    rewrite_local_images,
     serialize_passthrough_footer,
     strip_frontmatter_and_title,
 )
@@ -57,17 +58,26 @@ def wiki_export(args):
         print(content)
 
 
+def _upload_attachments(confluence, page_id, images):
+    for filename, abs_path in images:
+        confluence.attach_file(abs_path, page_id=page_id, name=filename)
+        print(f"  Uploaded attachment: {filename}")
+
+
 def wiki_update(args):
     with open(args.input_file, "r", encoding="utf-8") as f:
         md_text = f.read()
 
     title_from_file, md_text = strip_frontmatter_and_title(md_text)
     html_content = md_to_confluence_html(md_text)
+    base_dir = os.path.dirname(os.path.abspath(args.input_file))
+    html_content, images = rewrite_local_images(html_content, base_dir)
 
     confluence = create_confluence()
     page = confluence.get_page_by_id(args.page_id, expand="version")
     title = title_from_file or page["title"]
 
+    _upload_attachments(confluence, args.page_id, images)
     confluence.update_page(args.page_id, title, html_content, representation="storage")
     print(f"Updated page {args.page_id}: {title}")
 
@@ -78,6 +88,8 @@ def wiki_create(args):
 
     _, md_text = strip_frontmatter_and_title(md_text)
     html_content = md_to_confluence_html(md_text)
+    base_dir = os.path.dirname(os.path.abspath(args.input_file))
+    html_content, images = rewrite_local_images(html_content, base_dir)
 
     config = get_config()
     confluence = create_confluence()
@@ -88,5 +100,7 @@ def wiki_create(args):
         parent_id=args.parent,
         representation="storage",
     )
-    print(f"Created page {result['id']}: {args.title}")
-    print(f"{config.wiki_url.rstrip('/')}/pages/viewpage.action?pageId={result['id']}")
+    page_id = result["id"]
+    _upload_attachments(confluence, page_id, images)
+    print(f"Created page {page_id}: {args.title}")
+    print(f"{config.wiki_url.rstrip('/')}/pages/viewpage.action?pageId={page_id}")

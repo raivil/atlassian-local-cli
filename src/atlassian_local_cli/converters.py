@@ -1,11 +1,13 @@
+import os
 import re
 from collections import defaultdict
 
 import markdown as md_lib
 from bs4 import BeautifulSoup
 
-KNOWN_MACRO_TYPES = {"status", "code", "info", "note", "warning", "tip", "panel", "jira", "expand"}
+KNOWN_MACRO_TYPES = {"status", "code", "info", "note", "warning", "tip", "panel", "jira", "expand", "toc"}
 PASSTHROUGH_PREFIX = "CONFLUENCE-PASSTHROUGH-"
+MD_EXTENSIONS = ["tables", "fenced_code", "footnotes"]
 
 LOZENGE_TO_COLOUR = {
     "aui-lozenge-success": "green",
@@ -145,6 +147,15 @@ def restore_passthrough_blocks(html, mapping):
 
 def preprocess_export_html(html):
     """Convert Confluence-specific HTML elements to markdown-friendly tokens before html2text."""
+
+    # Confluence TOC macro renders as a div with class "toc-macro" (and often its inner list).
+    # Replace with [TOC] marker, which postprocess keeps as-is.
+    html = re.sub(
+        r'<div[^>]*class="[^"]*\btoc-macro\b[^"]*"[^>]*>.*?</div>',
+        "[TOC]",
+        html,
+        flags=re.DOTALL,
+    )
 
     def _replace_status(m):
         classes = m.group(1)
@@ -337,6 +348,44 @@ def unescape_html(text):
             .replace("&quot;", '"'))
 
 
+def _escape_cdata(text):
+    """Escape ']]>' sequences so they don't terminate a wrapping CDATA section."""
+    return text.replace("]]>", "]]]]><![CDATA[>")
+
+
+def rewrite_local_images(html, base_dir):
+    """Replace local <img> tags with Confluence <ac:image><ri:attachment> references.
+
+    Returns (rewritten_html, [(filename, abs_path), ...]) where the list contains
+    attachments the caller must upload to the page. External URLs, data: URIs,
+    and missing files are left untouched.
+    """
+    images = []
+    seen = set()
+
+    def _rewrite(m):
+        tag = m.group(0)
+        src_match = re.search(r'src="([^"]+)"', tag)
+        if not src_match:
+            return tag
+        src = src_match.group(1)
+        if src.startswith(("http://", "https://", "//", "data:", "/")):
+            return tag
+        abs_path = os.path.normpath(os.path.join(base_dir, src))
+        if not os.path.isfile(abs_path):
+            return tag
+        filename = os.path.basename(src)
+        if filename not in seen:
+            images.append((filename, abs_path))
+            seen.add(filename)
+        alt_match = re.search(r'alt="([^"]*)"', tag)
+        alt_attr = f' ac:alt="{alt_match.group(1)}"' if alt_match and alt_match.group(1) else ""
+        return f'<ac:image{alt_attr}><ri:attachment ri:filename="{filename}" /></ac:image>'
+
+    html = re.sub(r'<img\b[^>]*/?>', _rewrite, html)
+    return html, images
+
+
 def md_to_confluence_html(md_text):
     """Convert markdown to Confluence storage format HTML."""
     # Extract passthrough blocks first
@@ -449,7 +498,7 @@ def md_to_confluence_html(md_text):
 
     md_text = re.sub(r'^\|\| (.+?) \|\|.*$', _extract_colspan, md_text, flags=re.MULTILINE)
 
-    html = md_lib.markdown(md_text, extensions=["tables", "fenced_code"])
+    html = md_lib.markdown(md_text, extensions=MD_EXTENSIONS)
 
     # Replace colspan placeholders with actual colspan th elements.
     # Count columns from the table's thead to determine the span width.
@@ -479,7 +528,7 @@ def md_to_confluence_html(md_text):
         lambda m: (
             f'<ac:structured-macro ac:name="code">'
             f'<ac:parameter ac:name="language">{m.group(1)}</ac:parameter>'
-            f'<ac:plain-text-body><![CDATA[{unescape_html(m.group(2))}]]></ac:plain-text-body>'
+            f'<ac:plain-text-body><![CDATA[{_escape_cdata(unescape_html(m.group(2)))}]]></ac:plain-text-body>'
             f'</ac:structured-macro>'
         ),
         html,
@@ -489,7 +538,26 @@ def md_to_confluence_html(md_text):
         r'<pre><code>(.*?)</code></pre>',
         lambda m: (
             f'<ac:structured-macro ac:name="code">'
-            f'<ac:plain-text-body><![CDATA[{unescape_html(m.group(1))}]]></ac:plain-text-body>'
+            f'<ac:plain-text-body><![CDATA[{_escape_cdata(unescape_html(m.group(1)))}]]></ac:plain-text-body>'
+            f'</ac:structured-macro>'
+        ),
+        html,
+        flags=re.DOTALL,
+    )
+
+    # [TOC] → Confluence table of contents macro
+    html = re.sub(
+        r'<p>\[TOC\]</p>',
+        '<p><ac:structured-macro ac:name="toc" ac:schema-version="1" /></p>',
+        html,
+    )
+
+    # <iframe>…</iframe> → Confluence HTML macro (preserves iframe raw)
+    html = re.sub(
+        r'<iframe\b[^>]*>.*?</iframe>',
+        lambda m: (
+            f'<ac:structured-macro ac:name="html">'
+            f'<ac:plain-text-body><![CDATA[{_escape_cdata(m.group(0))}]]></ac:plain-text-body>'
             f'</ac:structured-macro>'
         ),
         html,
@@ -498,7 +566,7 @@ def md_to_confluence_html(md_text):
 
     # Restore panel block placeholders with actual XML (after markdown parsing)
     for key, (panel_type, title, body) in panel_blocks.items():
-        body_html = md_lib.markdown(body, extensions=["tables", "fenced_code"])
+        body_html = md_lib.markdown(body, extensions=MD_EXTENSIONS)
         title_param = f'<ac:parameter ac:name="title">{title}</ac:parameter>' if title else ""
         panel_xml = (
             f'<ac:structured-macro ac:name="{panel_type}">'
@@ -511,7 +579,7 @@ def md_to_confluence_html(md_text):
 
     # Restore expand block placeholders with actual XML
     for key, (title, body) in expand_blocks.items():
-        body_html = md_lib.markdown(body, extensions=["tables", "fenced_code"]) if body else ""
+        body_html = md_lib.markdown(body, extensions=MD_EXTENSIONS) if body else ""
         expand_xml = (
             f'<ac:structured-macro ac:name="expand">'
             f'<ac:parameter ac:name="title">{title}</ac:parameter>'

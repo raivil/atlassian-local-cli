@@ -91,6 +91,27 @@ class TestWikiUpdate:
         call_args = mock_confluence.update_page.call_args
         assert call_args[0][1] == "Existing Title"
 
+    @patch("atlassian_local_cli.wiki.create_confluence")
+    def test_uploads_local_images(self, mock_create, tmp_path):
+        mock_confluence = MagicMock()
+        mock_confluence.get_page_by_id.return_value = {"title": "Page", "version": {"number": 1}}
+        mock_create.return_value = mock_confluence
+
+        (tmp_path / "pic.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+        md_file = tmp_path / "input.md"
+        md_file.write_text("# Title\n\n![alt](pic.png)\n")
+
+        wiki_update(Namespace(page_id="12345", input_file=str(md_file)))
+
+        mock_confluence.attach_file.assert_called_once()
+        kwargs = mock_confluence.attach_file.call_args.kwargs
+        assert kwargs["page_id"] == "12345"
+        assert kwargs["name"] == "pic.png"
+        # Body sent to update_page uses ac:image with the attachment filename
+        update_body = mock_confluence.update_page.call_args[0][2]
+        assert 'ri:filename="pic.png"' in update_body
+        assert "<img" not in update_body
+
 
 class TestWikiCreate:
     @patch("atlassian_local_cli.wiki.get_config")

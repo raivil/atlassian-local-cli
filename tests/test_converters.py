@@ -1,3 +1,5 @@
+import os
+
 from atlassian_local_cli.converters import (
     extract_passthrough_footer,
     extract_unknown_macros,
@@ -5,6 +7,7 @@ from atlassian_local_cli.converters import (
     postprocess_export_md,
     preprocess_export_html,
     restore_passthrough_blocks,
+    rewrite_local_images,
     serialize_passthrough_footer,
     strip_frontmatter_and_title,
     unescape_html,
@@ -119,6 +122,13 @@ class TestPreprocessExportHtml:
         result = preprocess_export_html(html)
         assert "EXPAND-START: Click to expand" in result
         assert "EXPAND-BODY: Hidden content" in result
+
+    def test_toc_macro_becomes_marker(self):
+        html = '<div class="toc-macro rbtoc1234567890"><ul class="toc-indentation"><li><a href="#h1">Heading</a></li></ul></div>'
+        result = preprocess_export_html(html)
+        assert "[TOC]" in result
+        assert "toc-macro" not in result
+        assert "Heading" not in result
 
     def test_task_list_in_table_cell(self):
         html = '<td class="confluenceTd"><ul class="inline-task-list" data-inline-tasks-content-id="123"><li class="checked" data-inline-task-id="1"><span>Done</span></li><li data-inline-task-id="2"><span>Open</span></li></ul></td>'
@@ -298,6 +308,39 @@ class TestMdToConfluenceHtml:
         result = md_to_confluence_html(md)
         assert "CDATA[if a < b & c > d:" in result
 
+    def test_code_block_escapes_cdata_terminator(self):
+        """Code containing ']]>' must not prematurely terminate the wrapping CDATA."""
+        md = "```xml\n<![CDATA[payload]]>\n```"
+        result = md_to_confluence_html(md)
+        # The raw sequence ']]>' must not appear inside the plain-text-body except
+        # as the deliberate split+reopen that re-escapes it.
+        body_start = result.find("<ac:plain-text-body>") + len("<ac:plain-text-body>")
+        body_end = result.find("</ac:plain-text-body>")
+        body = result[body_start:body_end]
+        # The escaped form: ']]]]><![CDATA[>' appears exactly where the original had ']]>'
+        assert "]]]]><![CDATA[>" in body
+        # Still semantically represents the original payload
+        assert "payload" in body
+
+    def test_footnotes_supported(self):
+        md = "Here is a footnote ref[^1].\n\n[^1]: Footnote text."
+        result = md_to_confluence_html(md)
+        # markdown 'footnotes' extension emits a <sup> reference and a <div class="footnote">
+        assert 'class="footnote"' in result
+        assert "Footnote text" in result
+
+    def test_toc_marker_becomes_macro(self):
+        result = md_to_confluence_html("[TOC]")
+        assert 'ac:name="toc"' in result
+        assert "[TOC]" not in result
+
+    def test_iframe_wrapped_in_html_macro(self):
+        md = '<iframe src="https://example.com/embed" width="600"></iframe>'
+        result = md_to_confluence_html(md)
+        assert 'ac:name="html"' in result
+        assert "CDATA[<iframe" in result
+        assert 'src="https://example.com/embed"' in result
+
     def test_table(self):
         md = "| A | B |\n|---|---|\n| 1 | 2 |"
         result = md_to_confluence_html(md)
@@ -439,3 +482,67 @@ class TestStripFrontmatterAndTitle:
         title, body = strip_frontmatter_and_title(md)
         assert title is None
         assert body == "body"
+
+
+class TestRewriteLocalImages:
+    def test_local_image_rewritten(self, tmp_path):
+        img = tmp_path / "screenshot.png"
+        img.write_bytes(b"\x89PNG\r\n\x1a\n")
+        html = '<p><img alt="Screenshot" src="screenshot.png" /></p>'
+        result, images = rewrite_local_images(html, str(tmp_path))
+        assert '<ac:image ac:alt="Screenshot">' in result
+        assert 'ri:filename="screenshot.png"' in result
+        assert "<img" not in result
+        assert images == [("screenshot.png", str(img))]
+
+    def test_local_image_in_subdir(self, tmp_path):
+        subdir = tmp_path / "images"
+        subdir.mkdir()
+        img = subdir / "diagram.png"
+        img.write_bytes(b"\x89PNG\r\n\x1a\n")
+        html = '<img src="images/diagram.png" />'
+        result, images = rewrite_local_images(html, str(tmp_path))
+        assert 'ri:filename="diagram.png"' in result
+        # Path stored for upload must be absolute, not the relative src
+        assert images[0][0] == "diagram.png"
+        assert os.path.isabs(images[0][1])
+
+    def test_http_image_left_untouched(self, tmp_path):
+        html = '<img alt="logo" src="https://example.com/logo.png" />'
+        result, images = rewrite_local_images(html, str(tmp_path))
+        assert result == html
+        assert images == []
+
+    def test_missing_local_file_left_untouched(self, tmp_path):
+        html = '<img src="not-there.png" />'
+        result, images = rewrite_local_images(html, str(tmp_path))
+        assert result == html
+        assert images == []
+
+    def test_deduplicates_repeated_image(self, tmp_path):
+        img = tmp_path / "foo.png"
+        img.write_bytes(b"\x89PNG\r\n\x1a\n")
+        html = '<img src="foo.png" /><p>mid</p><img src="foo.png" />'
+        _, images = rewrite_local_images(html, str(tmp_path))
+        assert len(images) == 1
+
+    def test_no_alt_attribute(self, tmp_path):
+        img = tmp_path / "plain.png"
+        img.write_bytes(b"\x89PNG\r\n\x1a\n")
+        html = '<img src="plain.png" />'
+        result, _ = rewrite_local_images(html, str(tmp_path))
+        # No ac:alt attribute when alt is missing or empty
+        assert "<ac:image>" in result
+        assert "ac:alt" not in result
+
+    def test_absolute_path_left_untouched(self, tmp_path):
+        html = '<img src="/etc/passwd" />'
+        result, images = rewrite_local_images(html, str(tmp_path))
+        assert result == html
+        assert images == []
+
+    def test_data_uri_left_untouched(self, tmp_path):
+        html = '<img src="data:image/png;base64,AAA" />'
+        result, images = rewrite_local_images(html, str(tmp_path))
+        assert result == html
+        assert images == []
