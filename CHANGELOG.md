@@ -1,5 +1,29 @@
 # Changelog
 
+## v2.0.0 (2026-05-13)
+
+### Added
+- `jira-update` — patch individual attributes on an existing issue: `--summary`, `--description`/`--description-file`, `--priority`, `--assignee` (use `none` to unassign), `--type`, `--epic` (`none` to unlink), `--label` (replace), `--add-label`/`--remove-label` (mutate), and `--field key=value` for arbitrary custom fields (value parsed as JSON when possible).
+- New commands inspired by [ankitpokhrel/jira-cli](https://github.com/ankitpokhrel/jira-cli):
+  - `jira-me` — print the current Jira user.
+  - `jira-open` — open the issue in a browser (or `--print-url` only).
+  - `jira-search` — rich JQL search with raw `--jql` and/or builder flags (`--assignee me|none`, `--reporter`, `--priority`, `--label`, `--status`/`--status-name`, `--type`, `--project`), plus `--order-by`/`--reverse`/`--limit` and `--json`/`--csv` output.
+  - `jira-comment` / `jira-comments` — add a comment (inline, file, or stdin) and list comments on an issue.
+  - `jira-link` / `jira-unlink` / `jira-link-types` — generic issue links (`Blocks`, `Relates`, `Duplicates`, ...).
+  - `jira-worklog` — log work with Jira-style time syntax (`"1w 2d 3h 30m"`; `1w=5d, 1d=8h`; bare integer = minutes).
+  - `jira-sprints` / `jira-sprint-add` / `jira-sprint-issues` — list board sprints, add issues to a sprint, list issues in a sprint.
+  - `jira-clone` — clone an issue with optional `--summary` override and repeatable `--replace find:replace` on summary/description.
+  - `jira-delete` — delete an issue; requires `--yes`, optional `--cascade` for sub-tasks.
+  - `jira-epics` / `jira-epic-issues` — list epics (filterable by project/status) and list a given epic's children (Agile API with JQL fallback on the Epic Link field).
+- Make targets for every new command.
+- 194 tests with 100% coverage.
+
+### Fixed
+- `jira-link-epic` no longer double-wraps the request body in `{"fields": ...}` — `atlassian-python-api`'s `issue_update` already wraps for you, so the prior call was sending a malformed payload.
+
+### Changed
+- Dependency bumps: `requests` 2.34.1, `urllib3` 2.7.0, `pytest` 9.0.3, `pytest-cov` 7.1.0, `coverage` 7.14.0, `idna` 3.15, `packaging` 26.2, `certifi` 2026.4.22, `pyinstaller` 6.20.0, `pygments` 2.20.0.
+
 ## v1.4.0 (2026-04-09)
 
 ### Added

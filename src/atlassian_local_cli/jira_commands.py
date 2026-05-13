@@ -115,7 +115,7 @@ def jira_link_epic(args):
     link_field = epic_fields["link"]
 
     for issue_key in args.issue_keys:
-        jira.issue_update(issue_key, {"fields": {link_field: args.epic}})
+        jira.issue_update(issue_key, {link_field: args.epic})
         print(f"Linked {issue_key} \u2192 {args.epic}")
 
 
@@ -172,6 +172,72 @@ def jira_my_tasks(args):
         print("-" * len(header))
         for t in tasks:
             print(f"{t['key']:<{kw}}  {t['status']:<{sw}}  {t['type']:<{tw}}  {t['priority']:<{pw}}  {t['summary']}")
+
+
+def _parse_field_value(raw):
+    """Parse --field value as JSON when possible, otherwise as a string."""
+    try:
+        return json.loads(raw)
+    except (ValueError, TypeError):
+        return raw
+
+
+def jira_update(args):
+    """Update individual attributes of a Jira issue."""
+    jira = create_jira()
+
+    fields = {}
+
+    if args.summary is not None:
+        fields["summary"] = args.summary
+
+    if args.description is not None or args.description_file is not None:
+        fields["description"] = _resolve_description(args) or ""
+
+    if args.priority is not None:
+        fields["priority"] = {"name": args.priority}
+
+    if args.assignee is not None:
+        fields["assignee"] = None if args.assignee.lower() == "none" else {"name": args.assignee}
+
+    if args.type is not None:
+        fields["issuetype"] = {"name": args.type}
+
+    if args.epic is not None:
+        epic_fields = _get_epic_fields(jira)
+        fields[epic_fields["link"]] = None if args.epic.lower() == "none" else args.epic
+
+    if args.label or args.add_label or args.remove_label:
+        if args.label and (args.add_label or args.remove_label):
+            print("Error: --label cannot be combined with --add-label or --remove-label.", file=sys.stderr)
+            sys.exit(1)
+        if args.label:
+            fields["labels"] = list(args.label)
+        else:
+            current = jira.issue(args.issue_key)["fields"].get("labels") or []
+            labels = list(current)
+            for lbl in args.add_label or []:
+                if lbl not in labels:
+                    labels.append(lbl)
+            for lbl in args.remove_label or []:
+                if lbl in labels:
+                    labels.remove(lbl)
+            fields["labels"] = labels
+
+    for raw in args.field or []:
+        if "=" not in raw:
+            print(f"Error: --field expects key=value, got '{raw}'.", file=sys.stderr)
+            sys.exit(1)
+        key, value = raw.split("=", 1)
+        fields[key.strip()] = _parse_field_value(value)
+
+    if not fields:
+        print("Error: no fields to update. Pass at least one attribute flag.", file=sys.stderr)
+        sys.exit(1)
+
+    jira.issue_update(args.issue_key, fields)
+    keys = ", ".join(sorted(fields.keys()))
+    print(f"Updated {args.issue_key}: {keys}")
 
 
 def jira_transition(args):

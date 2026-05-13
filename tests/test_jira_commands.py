@@ -13,7 +13,27 @@ from atlassian_local_cli.jira_commands import (
     jira_link_epic,
     jira_my_tasks,
     jira_transition,
+    jira_update,
 )
+
+
+def _update_args(**overrides):
+    defaults = {
+        "issue_key": "PROJ-1",
+        "summary": None,
+        "description": None,
+        "description_file": None,
+        "priority": None,
+        "assignee": None,
+        "type": None,
+        "epic": None,
+        "label": None,
+        "add_label": None,
+        "remove_label": None,
+        "field": None,
+    }
+    defaults.update(overrides)
+    return Namespace(**defaults)
 
 
 @pytest.fixture(autouse=True)
@@ -401,7 +421,7 @@ class TestJiraLinkEpic:
         jira_link_epic(Namespace(issue_keys=["PROJ-201"], epic="PROJ-200"))
 
         mock_jira.issue_update.assert_called_once_with(
-            "PROJ-201", {"fields": {"customfield_10008": "PROJ-200"}}
+            "PROJ-201", {"customfield_10008": "PROJ-200"}
         )
         assert "PROJ-201" in capsys.readouterr().out
 
@@ -422,3 +442,148 @@ class TestJiraLinkEpic:
         assert "PROJ-201" in output
         assert "PROJ-202" in output
         assert "PROJ-203" in output
+
+
+class TestJiraUpdate:
+    @patch("atlassian_local_cli.jira_commands.create_jira")
+    def test_update_summary(self, mock_create, capsys):
+        mock_jira = MagicMock()
+        mock_create.return_value = mock_jira
+
+        jira_update(_update_args(summary="New title"))
+
+        mock_jira.issue_update.assert_called_once_with("PROJ-1", {"summary": "New title"})
+        assert "Updated PROJ-1" in capsys.readouterr().out
+
+    @patch("atlassian_local_cli.jira_commands.create_jira")
+    def test_update_description_inline(self, mock_create):
+        mock_jira = MagicMock()
+        mock_create.return_value = mock_jira
+
+        jira_update(_update_args(description="A description"))
+
+        mock_jira.issue_update.assert_called_once_with("PROJ-1", {"description": "A description"})
+
+    @patch("atlassian_local_cli.jira_commands.create_jira")
+    def test_update_description_from_file(self, mock_create, tmp_path):
+        mock_jira = MagicMock()
+        mock_create.return_value = mock_jira
+
+        desc_file = tmp_path / "d.md"
+        desc_file.write_text("Body text")
+
+        jira_update(_update_args(description_file=str(desc_file)))
+
+        mock_jira.issue_update.assert_called_once_with("PROJ-1", {"description": "Body text"})
+
+    @patch("atlassian_local_cli.jira_commands.create_jira")
+    def test_update_priority_assignee_type(self, mock_create):
+        mock_jira = MagicMock()
+        mock_create.return_value = mock_jira
+
+        jira_update(_update_args(priority="High", assignee="jdoe", type="Bug"))
+
+        mock_jira.issue_update.assert_called_once_with("PROJ-1", {
+            "priority": {"name": "High"},
+            "assignee": {"name": "jdoe"},
+            "issuetype": {"name": "Bug"},
+        })
+
+    @patch("atlassian_local_cli.jira_commands.create_jira")
+    def test_unassign(self, mock_create):
+        mock_jira = MagicMock()
+        mock_create.return_value = mock_jira
+
+        jira_update(_update_args(assignee="none"))
+
+        mock_jira.issue_update.assert_called_once_with("PROJ-1", {"assignee": None})
+
+    @patch("atlassian_local_cli.jira_commands.get_config")
+    @patch("atlassian_local_cli.jira_commands.create_jira")
+    def test_update_epic_link(self, mock_create, mock_config):
+        mock_config.return_value = MagicMock(
+            jira_epic_name_field="customfield_10004",
+            jira_epic_link_field="customfield_10008",
+        )
+        mock_jira = MagicMock()
+        mock_create.return_value = mock_jira
+
+        jira_update(_update_args(epic="PROJ-200"))
+
+        mock_jira.issue_update.assert_called_once_with("PROJ-1", {"customfield_10008": "PROJ-200"})
+
+    @patch("atlassian_local_cli.jira_commands.get_config")
+    @patch("atlassian_local_cli.jira_commands.create_jira")
+    def test_unlink_epic(self, mock_create, mock_config):
+        mock_config.return_value = MagicMock(
+            jira_epic_name_field="customfield_10004",
+            jira_epic_link_field="customfield_10008",
+        )
+        mock_jira = MagicMock()
+        mock_create.return_value = mock_jira
+
+        jira_update(_update_args(epic="none"))
+
+        mock_jira.issue_update.assert_called_once_with("PROJ-1", {"customfield_10008": None})
+
+    @patch("atlassian_local_cli.jira_commands.create_jira")
+    def test_replace_labels(self, mock_create):
+        mock_jira = MagicMock()
+        mock_create.return_value = mock_jira
+
+        jira_update(_update_args(label=["a", "b"]))
+
+        mock_jira.issue_update.assert_called_once_with("PROJ-1", {"labels": ["a", "b"]})
+        mock_jira.issue.assert_not_called()
+
+    @patch("atlassian_local_cli.jira_commands.create_jira")
+    def test_add_and_remove_labels(self, mock_create):
+        mock_jira = MagicMock()
+        mock_jira.issue.return_value = {"fields": {"labels": ["existing", "drop-me"]}}
+        mock_create.return_value = mock_jira
+
+        jira_update(_update_args(add_label=["new", "existing"], remove_label=["drop-me"]))
+
+        args, _ = mock_jira.issue_update.call_args
+        assert args[0] == "PROJ-1"
+        assert set(args[1]["labels"]) == {"existing", "new"}
+
+    @patch("atlassian_local_cli.jira_commands.create_jira")
+    def test_label_replace_conflicts_with_add(self, mock_create):
+        mock_create.return_value = MagicMock()
+        with pytest.raises(SystemExit):
+            jira_update(_update_args(label=["a"], add_label=["b"]))
+
+    @patch("atlassian_local_cli.jira_commands.create_jira")
+    def test_raw_field_json_value(self, mock_create):
+        mock_jira = MagicMock()
+        mock_create.return_value = mock_jira
+
+        jira_update(_update_args(field=['customfield_10010={"value":"X"}', "customfield_10011=42"]))
+
+        _, kwargs = mock_jira.issue_update.call_args
+        fields = mock_jira.issue_update.call_args[0][1]
+        assert fields["customfield_10010"] == {"value": "X"}
+        assert fields["customfield_10011"] == 42
+
+    @patch("atlassian_local_cli.jira_commands.create_jira")
+    def test_raw_field_string_value(self, mock_create):
+        mock_jira = MagicMock()
+        mock_create.return_value = mock_jira
+
+        jira_update(_update_args(field=["customfield_10012=plain text"]))
+
+        fields = mock_jira.issue_update.call_args[0][1]
+        assert fields["customfield_10012"] == "plain text"
+
+    @patch("atlassian_local_cli.jira_commands.create_jira")
+    def test_raw_field_missing_equals(self, mock_create):
+        mock_create.return_value = MagicMock()
+        with pytest.raises(SystemExit):
+            jira_update(_update_args(field=["customfield_10010"]))
+
+    @patch("atlassian_local_cli.jira_commands.create_jira")
+    def test_no_fields_exits(self, mock_create):
+        mock_create.return_value = MagicMock()
+        with pytest.raises(SystemExit):
+            jira_update(_update_args())

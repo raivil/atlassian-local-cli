@@ -1,6 +1,31 @@
 import argparse
 
-from .jira_commands import jira_create, jira_get, jira_link_epic, jira_my_tasks, jira_transition
+from .jira_commands import (
+    jira_create,
+    jira_get,
+    jira_link_epic,
+    jira_my_tasks,
+    jira_transition,
+    jira_update,
+)
+from .jira_extras import (
+    jira_clone,
+    jira_comment,
+    jira_comments,
+    jira_delete,
+    jira_epic_issues,
+    jira_epics,
+    jira_link,
+    jira_link_types,
+    jira_me,
+    jira_open,
+    jira_search,
+    jira_sprint_add,
+    jira_sprint_issues,
+    jira_sprints,
+    jira_unlink,
+    jira_worklog,
+)
 from .wiki import wiki_create, wiki_export, wiki_update
 
 
@@ -54,10 +79,126 @@ def main():
     p.add_argument("--project", help="Filter by project key (e.g. PROJ)")
     p.set_defaults(func=jira_my_tasks)
 
+    p = subparsers.add_parser("jira-update", help="Update individual attributes of a Jira issue")
+    p.add_argument("issue_key", help="Issue key (e.g. PROJ-123)")
+    p.add_argument("--summary", help="New summary/title")
+    p.add_argument("--description", help="Inline description (replaces existing)")
+    p.add_argument("--description-file", help="Read description from file (use '-' for stdin)")
+    p.add_argument("--priority", help="Priority (Highest, High, Medium, Low, Lowest)")
+    p.add_argument("--assignee", help="Username to assign (pass 'none' to unassign)")
+    p.add_argument("--type", help="Change issue type (e.g. Task, Bug, Story)")
+    p.add_argument("--epic", help="Link to Epic issue key, or 'none' to unlink")
+    p.add_argument("--label", action="append", help="Replace labels (repeatable)")
+    p.add_argument("--add-label", action="append", help="Add a label (repeatable)")
+    p.add_argument("--remove-label", action="append", help="Remove a label (repeatable)")
+    p.add_argument("--field", action="append", help="Set raw field key=value (value parsed as JSON if possible). Repeatable.")
+    p.set_defaults(func=jira_update)
+
     p = subparsers.add_parser("jira-transition", help="Transition a Jira issue to a new status")
     p.add_argument("issue_key", help="Issue key (e.g. PROJ-123)")
     p.add_argument("status", nargs="?", help="Target status name or transition ID (omit to list available)")
     p.set_defaults(func=jira_transition)
+
+    p = subparsers.add_parser("jira-me", help="Print the current Jira user")
+    p.add_argument("--json", action="store_true", help="Print full user JSON")
+    p.set_defaults(func=jira_me)
+
+    p = subparsers.add_parser("jira-open", help="Open a Jira issue in your browser")
+    p.add_argument("issue_key", help="Issue key (e.g. PROJ-123)")
+    p.add_argument("--print-url", action="store_true", help="Print URL only; don't open browser")
+    p.set_defaults(func=jira_open)
+
+    p = subparsers.add_parser("jira-search", help="Search Jira with JQL or filters")
+    p.add_argument("--jql", help="Raw JQL (combined with filter flags via AND)")
+    p.add_argument("--assignee", help="Filter by assignee (or 'me' / 'none')")
+    p.add_argument("--reporter", help="Filter by reporter (or 'me')")
+    p.add_argument("--status", choices=["open", "closed", "all"], help="Filter by status category")
+    p.add_argument("--status-name", help="Filter by exact status name")
+    p.add_argument("--type", help="Filter by issue type")
+    p.add_argument("--priority", help="Filter by priority")
+    p.add_argument("--project", help="Filter by project key")
+    p.add_argument("--label", action="append", help="Filter by label (repeatable)")
+    p.add_argument("--order-by", help="JQL field to order by (default: updated)")
+    p.add_argument("--reverse", action="store_true", help="Order ASC instead of DESC")
+    p.add_argument("--limit", type=int, default=50, help="Max results (default: 50)")
+    p.add_argument("--json", action="store_true", help="Output as JSON")
+    p.add_argument("--csv", action="store_true", help="Output as CSV")
+    p.set_defaults(func=jira_search)
+
+    p = subparsers.add_parser("jira-comment", help="Add a comment to a Jira issue")
+    p.add_argument("issue_key", help="Issue key (e.g. PROJ-123)")
+    p.add_argument("--body", help="Inline comment body")
+    p.add_argument("--body-file", help="Read comment from file (use '-' for stdin)")
+    p.set_defaults(func=jira_comment)
+
+    p = subparsers.add_parser("jira-comments", help="List comments on a Jira issue")
+    p.add_argument("issue_key", help="Issue key (e.g. PROJ-123)")
+    p.add_argument("--json", action="store_true", help="Output as JSON")
+    p.set_defaults(func=jira_comments)
+
+    p = subparsers.add_parser("jira-link", help="Link two Jira issues with a relation type")
+    p.add_argument("from_issue", help="Inward (source) issue key")
+    p.add_argument("to_issue", help="Outward (target) issue key")
+    p.add_argument("--type", required=True, help="Link type name (e.g. Blocks, Relates, Duplicates)")
+    p.add_argument("--comment", help="Optional comment to add with the link")
+    p.set_defaults(func=jira_link)
+
+    p = subparsers.add_parser("jira-unlink", help="Remove an issue link by ID")
+    p.add_argument("link_id", help="Issue link ID")
+    p.set_defaults(func=jira_unlink)
+
+    p = subparsers.add_parser("jira-link-types", help="List available Jira issue link types")
+    p.add_argument("--json", action="store_true", help="Output as JSON")
+    p.set_defaults(func=jira_link_types)
+
+    p = subparsers.add_parser("jira-worklog", help="Log work on a Jira issue")
+    p.add_argument("issue_key", help="Issue key (e.g. PROJ-123)")
+    p.add_argument("--time", required=True, help="Time spent (e.g. '2h 30m', '1d')")
+    p.add_argument("--comment", help="Optional worklog comment")
+    p.add_argument("--started", help="Start time in Jira format (default: now UTC)")
+    p.set_defaults(func=jira_worklog)
+
+    p = subparsers.add_parser("jira-sprints", help="List sprints on an Agile board")
+    p.add_argument("--board", required=True, help="Board ID")
+    p.add_argument("--state", help="Filter by state (active, closed, future)")
+    p.add_argument("--json", action="store_true", help="Output as JSON")
+    p.set_defaults(func=jira_sprints)
+
+    p = subparsers.add_parser("jira-sprint-add", help="Add issues to a sprint")
+    p.add_argument("sprint_id", help="Sprint ID")
+    p.add_argument("issue_keys", nargs="+", help="Issue keys to add")
+    p.set_defaults(func=jira_sprint_add)
+
+    p = subparsers.add_parser("jira-sprint-issues", help="List issues in a sprint")
+    p.add_argument("sprint_id", help="Sprint ID")
+    p.add_argument("--limit", type=int, default=50, help="Max results (default: 50)")
+    p.add_argument("--json", action="store_true", help="Output as JSON")
+    p.set_defaults(func=jira_sprint_issues)
+
+    p = subparsers.add_parser("jira-clone", help="Clone a Jira issue")
+    p.add_argument("issue_key", help="Source issue key")
+    p.add_argument("--summary", help="Override the summary on the clone")
+    p.add_argument("--replace", action="append", help="Find:replace applied to summary/description (repeatable)")
+    p.set_defaults(func=jira_clone)
+
+    p = subparsers.add_parser("jira-delete", help="Delete a Jira issue")
+    p.add_argument("issue_key", help="Issue key")
+    p.add_argument("--yes", action="store_true", help="Confirm deletion (required)")
+    p.add_argument("--cascade", action="store_true", help="Also delete sub-tasks")
+    p.set_defaults(func=jira_delete)
+
+    p = subparsers.add_parser("jira-epics", help="List Epic issues")
+    p.add_argument("--project", help="Filter by project key")
+    p.add_argument("--status", choices=["open", "closed", "all"], default="open", help="Filter by status (default: open)")
+    p.add_argument("--limit", type=int, default=50, help="Max results (default: 50)")
+    p.add_argument("--json", action="store_true", help="Output as JSON")
+    p.set_defaults(func=jira_epics)
+
+    p = subparsers.add_parser("jira-epic-issues", help="List issues belonging to an Epic")
+    p.add_argument("epic", help="Epic issue key (e.g. PROJ-100)")
+    p.add_argument("--limit", type=int, default=50, help="Max results (default: 50)")
+    p.add_argument("--json", action="store_true", help="Output as JSON")
+    p.set_defaults(func=jira_epic_issues)
 
     args = parser.parse_args()
     args.func(args)
