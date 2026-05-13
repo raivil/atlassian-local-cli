@@ -25,7 +25,7 @@ packages = ["src/atlassian_local_cli"]
 [dependency-groups]
 dev = [
     "pyinstaller>=6.19.0",
-    "pytest>=8.0",
+    "pytest>=9.0.3",
     "pytest-cov>=6.0",
 ]
 
