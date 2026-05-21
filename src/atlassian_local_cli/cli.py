@@ -1,5 +1,17 @@
 import argparse
+import sys
 
+from .config import (
+    ContextNotFoundError,
+    context_env_path,
+    context_exists,
+    get_current_context,
+    list_contexts,
+    load_config,
+    resolve_context_name,
+    set_active_context,
+    set_current_context,
+)
 from .jira_commands import (
     jira_create,
     jira_get,
@@ -29,9 +41,98 @@ from .jira_extras import (
 from .wiki import wiki_create, wiki_export, wiki_update
 
 
+def _context_list(args):
+    contexts = list_contexts()
+    if not contexts:
+        print("No contexts configured.")
+        print(f"Create one by adding {context_env_path('default')} or {context_env_path('<name>')}.")
+        return
+    active = resolve_context_name()
+    persisted = get_current_context()
+    for name in contexts:
+        marker = "*" if name == active else " "
+        suffix = ""
+        if name == persisted:
+            suffix = "  (current)"
+        print(f"{marker} {name}{suffix}")
+
+
+def _context_current(args):
+    print(resolve_context_name())
+
+
+def _context_use(args):
+    name = args.name
+    if not context_exists(name):
+        available = ", ".join(list_contexts()) or "(none)"
+        print(f"Error: context '{name}' does not exist. Available: {available}", file=sys.stderr)
+        print(f"Create it at: {context_env_path(name)}", file=sys.stderr)
+        sys.exit(1)
+    set_current_context(name)
+    print(f"Switched to context '{name}'.")
+
+
+def _context_unset(args):
+    set_current_context(None)
+    print("Cleared persistent context; defaulting to 'default'.")
+
+
+def _mask(value: str | None) -> str:
+    if not value:
+        return "(unset)"
+    if len(value) <= 8:
+        return "***"
+    return value[:4] + "…" + value[-4:]
+
+
+def _context_show(args):
+    name = args.name or resolve_context_name()
+    try:
+        config = load_config(context=name)
+    except ContextNotFoundError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    path = context_env_path(name)
+    print(f"context: {name}")
+    print(f"file:    {path}{' (missing)' if not path.exists() else ''}")
+    print(f"WIKI_URL={config.wiki_url}")
+    print(f"WIKI_USERNAME={config.wiki_username or '(unset)'}")
+    print(f"WIKI_TOKEN={_mask(config.wiki_token)}")
+    print(f"JIRA_URL={config.jira_url or '(unset)'}")
+    print(f"JIRA_TOKEN={_mask(config.jira_token)}")
+    if config.jira_epic_name_field:
+        print(f"JIRA_EPIC_NAME_FIELD={config.jira_epic_name_field}")
+    if config.jira_epic_link_field:
+        print(f"JIRA_EPIC_LINK_FIELD={config.jira_epic_link_field}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="CLI for Confluence and Jira")
+    parser.add_argument(
+        "--context",
+        help="Use a named context (overrides the persisted default). Run `context list` to see available contexts.",
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    ctx = subparsers.add_parser("context", help="Manage configuration contexts (accounts)")
+    ctx_sub = ctx.add_subparsers(dest="context_command", required=True)
+
+    cp = ctx_sub.add_parser("list", help="List available contexts")
+    cp.set_defaults(func=_context_list)
+
+    cp = ctx_sub.add_parser("current", help="Print the currently active context name")
+    cp.set_defaults(func=_context_current)
+
+    cp = ctx_sub.add_parser("use", help="Set the persistent default context")
+    cp.add_argument("name", help="Context name (must already exist as contexts/<name>.env)")
+    cp.set_defaults(func=_context_use)
+
+    cp = ctx_sub.add_parser("unset", help="Clear the persistent default (revert to 'default')")
+    cp.set_defaults(func=_context_unset)
+
+    cp = ctx_sub.add_parser("show", help="Print resolved config for a context (tokens masked)")
+    cp.add_argument("name", nargs="?", help="Context name (defaults to active)")
+    cp.set_defaults(func=_context_show)
 
     p = subparsers.add_parser("wiki-export", help="Export a Confluence page to Markdown")
     p.add_argument("page_id", help="Confluence page ID")
@@ -201,4 +302,16 @@ def main():
     p.set_defaults(func=jira_epic_issues)
 
     args = parser.parse_args()
+
+    if args.context is not None:
+        if not context_exists(args.context):
+            available = ", ".join(list_contexts()) or "(none)"
+            print(
+                f"Error: context '{args.context}' does not exist. Available: {available}",
+                file=sys.stderr,
+            )
+            print(f"Create it at: {context_env_path(args.context)}", file=sys.stderr)
+            sys.exit(1)
+        set_active_context(args.context)
+
     args.func(args)

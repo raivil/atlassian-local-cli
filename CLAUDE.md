@@ -38,22 +38,51 @@ make jira-clone ISSUE=<key> [REPLACE="old:new"]             # Clone an issue
 make jira-delete ISSUE=<key> YES=1 [CASCADE=1]              # Delete an issue
 make jira-epics [PROJECT=PROJ]                              # List epics
 make jira-epic-issues EPIC=<key>                            # List children of an epic
+make context-list                                           # List configured contexts (active marked with *)
+make context-current                                        # Print active context name
+make context-use NAME=<name>                                # Set persistent default context
+make context-show [NAME=<name>]                             # Show resolved config (tokens masked)
+make context-unset                                          # Revert persistent default to 'default'
 uv tool install . --reinstall                               # Install/update globally as `atlassian-local-cli`
 ```
 
+Every make target accepts `CONTEXT=<name>` to override the active context for that single invocation (e.g., `make jira-get ISSUE=FOO-1 CONTEXT=work`).
+
 ## Configuration
 
-Env vars loaded from `~/.config/atlassian-local-cli/.env`. See `.env.example`.
+Env vars loaded from `~/.config/atlassian-local-cli/.env` (the "default" context). See `.env.example`.
 
 - `WIKI_URL` — defaults to `https://wiki.example.com/`
 - `WIKI_USERNAME` / `WIKI_TOKEN` — Confluence auth (basic auth when username set, Bearer otherwise)
 - `JIRA_URL` / `JIRA_TOKEN` — Jira auth (always Bearer token via PAT)
 
+### Contexts (multi-account)
+
+Multiple accounts are supported kubectl-style. Storage layout:
+
+```
+~/.config/atlassian-local-cli/
+  .env                       # the "default" context
+  contexts/
+    work.env                 # named context, selected via --context work
+    personal.env
+  current-context            # plain text; persistent default set via `context use`
+```
+
+Resolution order (highest priority first):
+1. `--context <name>` flag passed on the command line
+2. `current-context` file contents (set via `atlassian-local-cli context use <name>`)
+3. `default` (i.e. `.env`)
+
+Shell env vars (e.g. `JIRA_TOKEN=...`) still win over file values, matching prior behavior.
+
+The `--context` flag must appear **before** the subcommand: `atlassian-local-cli --context work jira-get FOO-1`. Management commands: `context list | current | use <name> | unset | show [name]`.
+
 ## Architecture
 
 Python package in `src/atlassian_local_cli/` with `main.py` as a backward-compat shim for PyInstaller. Entry point `atlassian_local_cli.cli:main`. Managed with `uv` and built with `hatchling`.
 
-- **`config.py`** — `Config` dataclass + `get_config()` with lazy loading/caching. `reset_config()` for test isolation.
+- **`config.py`** — `Config` dataclass + `get_config()` with lazy loading/caching. `reset_config()` for test isolation. Multi-context: `set_active_context(name)` (from `--context` flag, clears cache), `set_current_context(name)` (persists to `current-context` file), `list_contexts()`, `context_env_path(name)`, `context_exists(name)`, `resolve_context_name()`, `ContextNotFoundError`. Uses `dotenv_values` (not `load_dotenv`) so context switches don't pollute `os.environ` across calls within a single process.
 - **`clients.py`** — `create_confluence()` / `create_jira()` factory functions. Confluence supports basic or Bearer auth; Jira always uses Bearer (PATs don't work with basic auth).
 - **`converters.py`** — all pure transformation functions:
   - `preprocess_export_html()` — converts Confluence HTML to markdown tokens before html2text (status badges → `{status:TITLE|colour}`, user mentions → `@username`)
