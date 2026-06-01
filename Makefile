@@ -51,9 +51,9 @@ jira-get: ## Get a Jira issue. Usage: make jira-get ISSUE=<key>
 jira-my-tasks: ## List your Jira tasks. Usage: make jira-my-tasks [JSON=1] [LIMIT=50]
 	$(CLI) jira-my-tasks $(if $(JSON),--json) $(if $(LIMIT),--limit $(LIMIT))
 
-jira-transition: ## Transition a Jira issue. Usage: make jira-transition ISSUE=<key> [STATUS="<status>"]
+jira-transition: ## Transition a Jira issue. Usage: make jira-transition ISSUE=<key> [STATUS="<status>"] [RESOLUTION="Won't Do"]
 	@if [ -z "$(ISSUE)" ]; then echo "Error: ISSUE is required."; exit 1; fi
-	$(CLI) jira-transition $(ISSUE) $(STATUS)
+	$(CLI) jira-transition $(ISSUE) $(STATUS) $(if $(RESOLUTION),--resolution "$(RESOLUTION)")
 
 jira-me: ## Print the current Jira user
 	$(CLI) jira-me $(if $(JSON),--json)

@@ -219,9 +219,10 @@ class TestJiraTransition:
     @patch("atlassian_local_cli.jira_commands.create_jira")
     def test_list_transitions(self, mock_create, capsys):
         mock_jira = MagicMock()
+        # get_issue_transitions returns ids as ints (matches the real library).
         mock_jira.get_issue_transitions.return_value = [
-            {"name": "In Progress", "id": "31"},
-            {"name": "Done", "id": "41"},
+            {"name": "In Progress", "id": 31, "to": "In Progress"},
+            {"name": "Done", "id": 41, "to": "Done"},
         ]
         mock_create.return_value = mock_jira
 
@@ -234,34 +235,73 @@ class TestJiraTransition:
     def test_transition_by_name(self, mock_create, capsys):
         mock_jira = MagicMock()
         mock_jira.get_issue_transitions.return_value = [
-            {"name": "In Progress", "id": "31"},
+            {"name": "In Progress", "id": 31, "to": "In Progress"},
         ]
         mock_create.return_value = mock_jira
 
         jira_transition(Namespace(issue_key="PROJ-1", status="in progress"))
-        mock_jira.issue_transition.assert_called_once_with("PROJ-1", "31")
+        mock_jira.set_issue_status_by_transition_id.assert_called_once_with("PROJ-1", 31)
+        mock_jira.issue_transition.assert_not_called()
 
     @patch("atlassian_local_cli.jira_commands.create_jira")
     def test_transition_by_id(self, mock_create, capsys):
         mock_jira = MagicMock()
         mock_jira.get_issue_transitions.return_value = [
-            {"name": "Done", "id": "41"},
+            {"name": "Done", "id": 41, "to": "Done"},
         ]
         mock_create.return_value = mock_jira
 
         jira_transition(Namespace(issue_key="PROJ-1", status="41"))
-        mock_jira.issue_transition.assert_called_once_with("PROJ-1", "41")
+        mock_jira.set_issue_status_by_transition_id.assert_called_once_with("PROJ-1", 41)
 
     @patch("atlassian_local_cli.jira_commands.create_jira")
     def test_invalid_transition_exits(self, mock_create):
         mock_jira = MagicMock()
         mock_jira.get_issue_transitions.return_value = [
-            {"name": "Done", "id": "41"},
+            {"name": "Done", "id": 41, "to": "Done"},
         ]
         mock_create.return_value = mock_jira
 
         with pytest.raises(SystemExit):
             jira_transition(Namespace(issue_key="PROJ-1", status="invalid"))
+
+    @patch("atlassian_local_cli.jira_commands.create_jira")
+    def test_transition_with_resolution(self, mock_create, capsys):
+        mock_jira = MagicMock()
+        mock_jira.get_issue_transitions.return_value = [
+            {"name": "Closed", "id": 11, "to": "Closed"},
+        ]
+        mock_jira.get_all_resolutions.return_value = [
+            {"id": "1", "name": "Done"},
+            {"id": "10000", "name": "Won't Do"},
+        ]
+        mock_jira.resource_url.return_value = "https://jira/rest/api/2/issue"
+        mock_create.return_value = mock_jira
+
+        # Case-insensitive resolution match resolves to the canonical name.
+        jira_transition(Namespace(issue_key="PROJ-1", status="closed", resolution="won't do"))
+
+        mock_jira.post.assert_called_once_with(
+            "https://jira/rest/api/2/issue/PROJ-1/transitions",
+            data={"transition": {"id": 11}, "fields": {"resolution": {"name": "Won't Do"}}},
+        )
+        mock_jira.set_issue_status_by_transition_id.assert_not_called()
+        assert "Won't Do" in capsys.readouterr().out
+
+    @patch("atlassian_local_cli.jira_commands.create_jira")
+    def test_transition_invalid_resolution_exits(self, mock_create):
+        mock_jira = MagicMock()
+        mock_jira.get_issue_transitions.return_value = [
+            {"name": "Closed", "id": 11, "to": "Closed"},
+        ]
+        mock_jira.get_all_resolutions.return_value = [{"id": "1", "name": "Done"}]
+        mock_create.return_value = mock_jira
+
+        with pytest.raises(SystemExit):
+            jira_transition(Namespace(issue_key="PROJ-1", status="closed", resolution="nope"))
+
+        mock_jira.post.assert_not_called()
+        mock_jira.set_issue_status_by_transition_id.assert_not_called()
 
 
 class TestJiraCreate:

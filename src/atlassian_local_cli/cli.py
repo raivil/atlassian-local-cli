@@ -198,6 +198,10 @@ def main():
     p = subparsers.add_parser("jira-transition", help="Transition a Jira issue to a new status")
     p.add_argument("issue_key", help="Issue key (e.g. PROJ-123)")
     p.add_argument("status", nargs="?", help="Target status name or transition ID (omit to list available)")
+    p.add_argument(
+        "--resolution",
+        help="Set resolution during the transition, e.g. \"Won't Do\" (only valid on transitions whose screen includes the resolution field)",
+    )
     p.set_defaults(func=jira_transition)
 
     p = subparsers.add_parser("jira-me", help="Print the current Jira user")

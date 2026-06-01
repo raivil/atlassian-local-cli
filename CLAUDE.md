@@ -20,7 +20,7 @@ make wiki-update PAGE=<id> INPUT=<file.md>                  # Update Confluence 
 make wiki-create SPACE=<key> TITLE="title" INPUT=<file.md>  # Create Confluence page
 make jira-get ISSUE=<key>                                   # Display a Jira issue
 make jira-my-tasks [JSON=1] [LIMIT=50]                      # List your assigned tasks
-make jira-transition ISSUE=<key> [STATUS="<status>"]        # Transition issue (omit STATUS to list options)
+make jira-transition ISSUE=<key> [STATUS="<status>"] [RESOLUTION="Won't Do"]  # Transition issue (omit STATUS to list options)
 make jira-update ISSUE=<key> [SUMMARY=...] [PRIORITY=...]   # Update individual attributes
 make jira-me                                                # Print current user
 make jira-open ISSUE=<key>                                  # Open issue in browser
@@ -90,7 +90,7 @@ Python package in `src/atlassian_local_cli/` with `main.py` as a backward-compat
   - Colspan table section headers: `|| TEXT ||` in markdown ↔ `<th colspan="N">` in Confluence. Column count auto-detected from thead.
   - `strip_frontmatter_and_title()` — strips YAML frontmatter and `# Title` heading from markdown before upload
 - **`wiki.py`** — export prepends YAML frontmatter (page_id, space, version, author, dates, url) and `# Title`; update/create strip both before uploading
-- **`jira_commands.py`** — `build_jql()` constructs JQL from filter params; `jira-my-tasks` supports `--json` for integrations; `jira-transition` matches by status name (case-insensitive) or transition ID; `jira-update` patches individual attributes (summary/description/priority/assignee/type/labels/epic/raw fields). `--label` replaces, `--add-label`/`--remove-label` mutate; pass `--field key=value` with JSON parsing for raw custom fields. Pass `--assignee none` or `--epic none` to clear.
+- **`jira_commands.py`** — `build_jql()` constructs JQL from filter params; `jira-my-tasks` supports `--json` for integrations; `jira-transition` matches by status name (case-insensitive) or transition ID, then posts the resolved id via `set_issue_status_by_transition_id` (the library's `issue_transition`/`set_issue_status` re-resolve the arg as a *status name* and crash on our int id). `--resolution "Won't Do"` sets a resolution during the transition (validated case-insensitively against `get_all_resolutions`, posted as a `fields.resolution` payload; only works on transitions whose screen includes the resolution field); `jira-update` patches individual attributes (summary/description/priority/assignee/type/labels/epic/raw fields). `--label` replaces, `--add-label`/`--remove-label` mutate; pass `--field key=value` with JSON parsing for raw custom fields. Pass `--assignee none` or `--epic none` to clear.
 - **`jira_extras.py`** — additional commands inspired by `ankitpokhrel/jira-cli`:
   - `jira-me`, `jira-open` (uses `webbrowser`), `jira-search` (rich JQL + filters, `--csv`/`--json`/`--order-by`/`--reverse`; `--jql` and filters AND together)
   - `jira-comment` / `jira-comments` (add + list comments; `--body` or `--body-file -`)

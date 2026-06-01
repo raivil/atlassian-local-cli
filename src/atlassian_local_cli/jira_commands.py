@@ -254,7 +254,9 @@ def jira_transition(args):
     target = args.status.lower()
     match = None
     for t in transitions:
-        if t["name"].lower() == target or t["id"] == args.status:
+        # get_issue_transitions returns ids as ints; compare as strings so a
+        # numeric transition id passed on the command line still matches.
+        if t["name"].lower() == target or str(t["id"]) == args.status:
             match = t
             break
 
@@ -263,5 +265,35 @@ def jira_transition(args):
         print(f"Error: '{args.status}' is not a valid transition. Available: {names}", file=sys.stderr)
         sys.exit(1)
 
-    jira.issue_transition(args.issue_key, match["id"])
+    resolution = getattr(args, "resolution", None)
+    if resolution:
+        # Resolution can only be set as part of a transition, via the transition
+        # screen's fields. Validate the name client-side (case-insensitively,
+        # like status matching) so a typo gives a clear error instead of a 400.
+        resolutions = jira.get_all_resolutions() or []
+        rmatch = next((r for r in resolutions if r["name"].lower() == resolution.lower()), None)
+        if not rmatch:
+            rnames = ", ".join(r["name"] for r in resolutions)
+            print(f"Error: '{resolution}' is not a valid resolution. Available: {rnames}", file=sys.stderr)
+            sys.exit(1)
+
+        # No library method accepts both a transition id and fields, so post
+        # directly (the same request set_issue_status_by_transition_id makes,
+        # plus the resolution field). If the transition's workflow screen does
+        # not include the resolution field, Jira rejects this with a 400.
+        base_url = jira.resource_url("issue")
+        url = f"{base_url}/{args.issue_key}/transitions"
+        data = {
+            "transition": {"id": match["id"]},
+            "fields": {"resolution": {"name": rmatch["name"]}},
+        }
+        jira.post(url, data=data)
+        print(f"Transitioned {args.issue_key} \u2192 {match['name']} (resolution: {rmatch['name']})")
+        return
+
+    # Post the resolved transition id directly. Do NOT use issue_transition()/
+    # set_issue_status() here: those treat the argument as a status *name* and
+    # re-resolve it via get_transition_id_to_status_name(), which calls
+    # .lower() on the value and blows up on our int id.
+    jira.set_issue_status_by_transition_id(args.issue_key, match["id"])
     print(f"Transitioned {args.issue_key} \u2192 {match['name']}")

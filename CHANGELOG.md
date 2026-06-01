@@ -1,5 +1,14 @@
 # Changelog
 
+## v2.2.0 (2026-06-01)
+
+### Fixed
+- `jira-transition` no longer crashes on every transition against this Jira instance. The command resolved the transition itself, then called the library's `issue_transition()` (an alias for `set_issue_status()`), which re-interprets its argument as a *status name* and re-resolves it via `get_transition_id_to_status_name()` — that calls `.lower()` on the value and raised `AttributeError: 'int' object has no attribute 'lower'`, because `get_issue_transitions()` returns transition ids as ints. It now posts the already-resolved id directly via `set_issue_status_by_transition_id`.
+- Transition-by-id (e.g. `jira-transition KEY 41`) now matches against the real instance. Matching compared `t["id"] == args.status` (int vs str, always false since the library returns int ids); it now compares as strings.
+
+### Added
+- `jira-transition --resolution "Won't Do"` sets a resolution as part of the transition (e.g. to close an issue as Won't Do). The name is validated case-insensitively against `get_all_resolutions()` — a typo gives a clear error listing the valid resolutions — and is posted as a `fields.resolution` payload. Only works on transitions whose workflow screen includes the resolution field; otherwise Jira rejects it with a 400. New `RESOLUTION=` passthrough on the `jira-transition` Make target.
+
 ## v2.1.1 (2026-06-01)
 
 ### Fixed
