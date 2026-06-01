@@ -290,6 +290,25 @@ class TestMdToConfluenceHtml:
         result = md_to_confluence_html("Email user@example.com")
         assert "ri:username" not in result
 
+    def test_user_mention_not_in_inline_code(self):
+        """An npm scoped package in inline code must not become a user mention."""
+        result = md_to_confluence_html("Bump `@modelcontextprotocol/sdk` to 1.26.0.")
+        assert "ri:username" not in result
+        assert "ac:link" not in result
+        assert "@modelcontextprotocol/sdk" in result
+
+    def test_user_mention_not_in_fenced_code(self):
+        """An @decorator inside a fenced code block must not become a user mention."""
+        md = "```python\n@app.route('/x')\ndef x():\n    pass\n```"
+        result = md_to_confluence_html(md)
+        assert "ri:username" not in result
+        assert "@app.route('/x')" in result
+
+    def test_user_mention_not_in_scoped_package(self):
+        """A scoped package reference in prose (with a slash) is not a mention."""
+        result = md_to_confluence_html("Install @modelcontextprotocol/sdk now.")
+        assert "ri:username" not in result
+
     def test_fenced_code_with_language(self):
         md = "```python\nprint('hi')\n```"
         result = md_to_confluence_html(md)

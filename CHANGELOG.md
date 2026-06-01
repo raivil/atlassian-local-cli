@@ -1,5 +1,15 @@
 # Changelog
 
+## v2.1.1 (2026-06-01)
+
+### Fixed
+- `@mention` conversion on upload (`md_to_confluence_html`) no longer fires inside code. Inline code spans and fenced code blocks are now left verbatim, so references like `` `@modelcontextprotocol/sdk` `` (an npm scope) or `` `@kind path-problem` `` (CodeQL metadata) no longer get rewritten into `<ac:link><ri:user .../></ac:link>`, which Confluence rendered as literal escaped markup on the page. Scoped-package refs (`@scope/pkg`) outside code are also no longer treated as mentions. Genuine prose mentions (`@jdoe`) are unaffected. Adds 3 regression tests.
+
+## v2.1.0 (2026-05-21)
+
+### Added
+- Multi-account context support (kubectl-style). Config resolves from `--context <name>` → `current-context` file → `default` (`.env`), with named contexts stored under `contexts/<name>.env`. New `context` subcommands: `list`, `current`, `use <name>`, `unset`, `show [name]`. Every Make target accepts `CONTEXT=<name>`. Shell env vars still override file values.
+
 ## v2.0.0 (2026-05-13)
 
 ### Added

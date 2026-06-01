@@ -477,10 +477,24 @@ def md_to_confluence_html(md_text):
 
     md_text = re.sub(r'(?:^- \[[ xX]\] .+\n?)+', _convert_md_tasks, md_text, flags=re.MULTILINE)
 
+    # Convert @username mentions to Confluence user links, but never inside code
+    # regions: an inline span like `@modelcontextprotocol/sdk` or a fenced block
+    # with a `@decorator` is code, not a mention. The combined pattern matches
+    # code regions first and returns them unchanged, so the mention branch only
+    # fires in prose. The `(?![\w/])` lookahead also skips scoped-package refs
+    # (`@scope/pkg`) that appear outside code.
+    def _convert_mention(m):
+        if m.group("user"):
+            return f'<ac:link><ri:user ri:username="{m.group("user")}" /></ac:link>'
+        return m.group(0)
+
     md_text = re.sub(
-        r'(?<!["\w])@(\w+)(?!\w)',
-        r'<ac:link><ri:user ri:username="\1" /></ac:link>',
+        r'(?P<fence>```.*?```|~~~.*?~~~)'        # fenced code blocks
+        r'|(?P<inline>`+[^`]*`+)'                # inline code spans
+        r'|(?<!["\w])@(?P<user>\w+)(?![\w/])',   # user mention (not in code, not scoped pkg)
+        _convert_mention,
         md_text,
+        flags=re.DOTALL,
     )
 
     # Extract colspan rows from markdown tables before parsing.
