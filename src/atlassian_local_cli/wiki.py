@@ -5,6 +5,8 @@ import html2text
 from .clients import create_confluence
 from .config import get_config
 from .converters import (
+    extract_page_property_divs,
+    extract_report_macros,
     extract_unknown_macros,
     md_to_confluence_html,
     postprocess_export_md,
@@ -24,6 +26,12 @@ def wiki_export(args):
 
     # Extract unknown macros and replace with placeholders in export_view
     export_html, passthrough_mapping = extract_unknown_macros(export_html, storage_html)
+
+    # Page Properties (details) + Page Properties Report (detailssummary): replace the
+    # rendered output with editable markdown directives. This also removes the rendered
+    # copy from the body, so these macros are no longer duplicated on round-trip.
+    export_html, page_property_blocks = extract_page_property_divs(export_html, storage_html)
+    export_html, report_blocks = extract_report_macros(export_html, storage_html)
 
     html_content = preprocess_export_html(export_html)
     h = html2text.HTML2Text()
@@ -46,6 +54,9 @@ def wiki_export(args):
     )
 
     md_body = postprocess_export_md(h.handle(html_content))
+    # Restore page-properties / report directive tokens (unique, so order is irrelevant).
+    for token, block in {**page_property_blocks, **report_blocks}.items():
+        md_body = md_body.replace(token, block)
     passthrough_footer = serialize_passthrough_footer(passthrough_mapping)
     content = f"{frontmatter}# {page['title']}\n\n{md_body}{passthrough_footer}"
 

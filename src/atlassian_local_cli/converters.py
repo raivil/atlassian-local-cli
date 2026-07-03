@@ -2,10 +2,17 @@ import os
 import re
 from collections import defaultdict
 
+import html2text
 import markdown as md_lib
 from bs4 import BeautifulSoup
 
-KNOWN_MACRO_TYPES = {"status", "code", "info", "note", "warning", "tip", "panel", "jira", "expand", "toc"}
+# Macro names handled explicitly by the converters (so the generic passthrough
+# mechanism skips them). "details" (Page Properties) and "detailssummary"
+# (Page Properties Report) get dedicated round-trip handling.
+KNOWN_MACRO_TYPES = {
+    "status", "code", "info", "note", "warning", "tip", "panel", "jira",
+    "expand", "toc", "details", "detailssummary",
+}
 PASSTHROUGH_PREFIX = "CONFLUENCE-PASSTHROUGH-"
 MD_EXTENSIONS = ["tables", "fenced_code", "footnotes"]
 
@@ -81,12 +88,26 @@ def _find_top_level_macros(storage_html):
     return results
 
 
+def _find_legacy_macros(storage_html):
+    """Find top-level legacy <ac:macro> elements (older Confluence macro storage form).
+
+    Without this, legacy macros (e.g. some detailssummary usages) are silently
+    dropped on round-trip because they are neither known nor structured-macros.
+    """
+    results = []
+    for m in re.finditer(r'<ac:macro\b[^>]*?/>|<ac:macro\b.*?</ac:macro>', storage_html, re.DOTALL):
+        xml = m.group(0)
+        name_match = re.search(r'ac:name="([^"]*)"', xml)
+        results.append((name_match.group(1) if name_match else "", xml))
+    return results
+
+
 def extract_unknown_macros(export_html, storage_html):
     """Extract unknown macros from storage XML, return export_html unchanged and mapping."""
     mapping = {}
     counter = 0
 
-    for name, xml in _find_top_level_macros(storage_html):
+    for name, xml in _find_top_level_macros(storage_html) + _find_legacy_macros(storage_html):
         if name not in KNOWN_MACRO_TYPES:
             marker = f"{PASSTHROUGH_PREFIX}{counter}"
             mapping[marker] = xml
@@ -145,6 +166,41 @@ def restore_passthrough_blocks(html, mapping):
     return html
 
 
+def _status_span_to_token(m):
+    classes = m.group(1)
+    title = m.group(2)
+    colour = "grey"
+    for cls, col in LOZENGE_TO_COLOUR.items():
+        if cls in classes:
+            colour = col
+            break
+    return f"{{status:{title}|{colour}}}"
+
+
+def convert_inline_confluence_tokens(html):
+    """Convert status badges, user mentions, and dates to markdown tokens.
+
+    Shared by the whole-page export preprocessing and per-cell page-properties export.
+    """
+    html = re.sub(
+        r'<span[^>]*class="(status-macro[^"]*)"[^>]*>([^<]*)</span>',
+        _status_span_to_token,
+        html,
+    )
+    html = re.sub(
+        r'<a[^>]*confluence-userlink[^>]*data-username="([^"]*)"[^>]*>[^<]*</a>',
+        r"@\1",
+        html,
+    )
+    # Dates: <time datetime="2026-03-26" ...>26 Mar 2026</time> → {date:2026-03-26}
+    html = re.sub(
+        r'<time[^>]*datetime="([^"]*)"[^>]*>[^<]*</time>',
+        r"{date:\1}",
+        html,
+    )
+    return html
+
+
 def preprocess_export_html(html):
     """Convert Confluence-specific HTML elements to markdown-friendly tokens before html2text."""
 
@@ -157,34 +213,7 @@ def preprocess_export_html(html):
         flags=re.DOTALL,
     )
 
-    def _replace_status(m):
-        classes = m.group(1)
-        title = m.group(2)
-        colour = "grey"
-        for cls, col in LOZENGE_TO_COLOUR.items():
-            if cls in classes:
-                colour = col
-                break
-        return f"{{status:{title}|{colour}}}"
-
-    html = re.sub(
-        r'<span[^>]*class="(status-macro[^"]*)"[^>]*>([^<]*)</span>',
-        _replace_status,
-        html,
-    )
-
-    html = re.sub(
-        r'<a[^>]*confluence-userlink[^>]*data-username="([^"]*)"[^>]*>[^<]*</a>',
-        r"@\1",
-        html,
-    )
-
-    # Dates: <time datetime="2026-03-26" ...>26 Mar 2026</time> → {date:2026-03-26}
-    html = re.sub(
-        r'<time[^>]*datetime="([^"]*)"[^>]*>[^<]*</time>',
-        r"{date:\1}",
-        html,
-    )
+    html = convert_inline_confluence_tokens(html)
 
     # Task lists inside table cells: convert to compact inline format
     # (markdown checkboxes can't live inside table cells)
@@ -339,6 +368,124 @@ def postprocess_export_md(md_text):
     return md_text
 
 
+def find_details_ids(storage_html):
+    """Return the `id` parameter of each Page Properties (details) macro, in document order."""
+    ids = []
+    for m in re.finditer(r'<ac:structured-macro ac:name="details"', storage_html):
+        start = m.start()
+        rtb = storage_html.find("<ac:rich-text-body", start)
+        prefix = storage_html[start:rtb] if rtb != -1 else storage_html[start:start + 400]
+        id_match = re.search(r'<ac:parameter ac:name="id">([^<]*)</ac:parameter>', prefix)
+        ids.append(id_match.group(1) if id_match else None)
+    return ids
+
+
+def _compact_inline_html(inner_html):
+    """Collapse block cell content (e.g. a list) into single-line inline HTML."""
+    soup = BeautifulSoup(inner_html, "html.parser")
+    for tag in soup.find_all(["div", "p"]):
+        tag.unwrap()
+    for tag in soup.find_all(True):
+        if tag.name == "a" and tag.get("href"):
+            tag.attrs = {"href": tag["href"]}
+        else:
+            tag.attrs = {}
+    return re.sub(r"\s+", " ", str(soup)).strip()
+
+
+def _export_cell_to_md(cell):
+    """Render a details-macro table cell (BeautifulSoup tag) to inline markdown."""
+    inner = convert_inline_confluence_tokens(cell.decode_contents())
+    if re.search(r"<(ol|ul|table)\b", inner):
+        return _compact_inline_html(inner)
+    h = html2text.HTML2Text()
+    h.body_width = 0
+    h.ignore_links = False
+    h.ignore_images = False
+    return re.sub(r"\s+", " ", h.handle(inner).strip())
+
+
+def _details_div_to_markdown(div, macro_id):
+    """Convert a rendered plugin-tabmeta-details div into a page-properties markdown block."""
+    table = div.find("table")
+    rows = []
+    if table is not None:
+        for tr in table.find_all("tr"):
+            cells = tr.find_all(["th", "td"])
+            if cells:
+                rows.append([_export_cell_to_md(c) for c in cells])
+    ncols = max((len(r) for r in rows), default=2)
+    if ncols <= 2:
+        head = ["Property", "Value"][:ncols] or ["Property"]
+    else:
+        head = [f"Column {i + 1}" for i in range(ncols)]
+    directive = f"<!-- page-properties id={macro_id} -->" if macro_id else "<!-- page-properties -->"
+    lines = [
+        directive,
+        "| " + " | ".join(head) + " |",
+        "| " + " | ".join(["---"] * ncols) + " |",
+    ]
+    for row in rows:
+        padded = row + [""] * (ncols - len(row))
+        lines.append("| " + " | ".join(padded) + " |")
+    return "\n".join(lines)
+
+
+def extract_page_property_divs(export_html, storage_html):
+    """Replace rendered Page Properties divs with tokens; return (html, {token: md block})."""
+    ids = find_details_ids(storage_html)
+    soup = BeautifulSoup(export_html, "html.parser")
+    divs = soup.find_all("div", class_="plugin-tabmeta-details")
+    if not divs:
+        return export_html, {}
+    mapping = {}
+    for idx, div in enumerate(divs):
+        macro_id = ids[idx] if idx < len(ids) else None
+        token = f"PAGEPROPSEXPORT{idx}"
+        mapping[token] = _details_div_to_markdown(div, macro_id)
+        placeholder = soup.new_tag("p")
+        placeholder.string = token
+        div.replace_with(placeholder)
+    return str(soup), mapping
+
+
+def find_report_params(storage_html):
+    """Return the parameters of each detailssummary macro, in document order."""
+    result = []
+    for m in re.finditer(
+        r'<ac:(?:structured-)?macro ac:name="detailssummary".*?</ac:(?:structured-)?macro>',
+        storage_html,
+        re.DOTALL,
+    ):
+        params = re.findall(r'<ac:parameter ac:name="([^"]+)">([^<]*)</ac:parameter>', m.group(0))
+        result.append([(k, v) for k, v in params])
+    return result
+
+
+def _report_directive(params):
+    parts = [f'{k}="{v}"' if " " in v else f"{k}={v}" for k, v in params]
+    inner = (" " + " ".join(parts)) if parts else ""
+    return f"<!-- page-properties-report{inner} -->"
+
+
+def extract_report_macros(export_html, storage_html):
+    """Replace rendered Page Properties Report tables with directive tokens."""
+    params_list = find_report_params(storage_html)
+    soup = BeautifulSoup(export_html, "html.parser")
+    tables = soup.find_all("table", class_="metadata-summary-macro")
+    if not tables:
+        return export_html, {}
+    mapping = {}
+    for idx, table in enumerate(tables):
+        params = params_list[idx] if idx < len(params_list) else []
+        token = f"PAGEPROPSREPORT{idx}"
+        mapping[token] = _report_directive(params)
+        placeholder = soup.new_tag("p")
+        placeholder.string = token
+        table.replace_with(placeholder)
+    return str(soup), mapping
+
+
 def unescape_html(text):
     """Unescape HTML entities inside code blocks for CDATA."""
     return (text
@@ -384,6 +531,87 @@ def rewrite_local_images(html, base_dir):
 
     html = re.sub(r'<img\b[^>]*/?>', _rewrite, html)
     return html, images
+
+
+def parse_directive_params(param_str):
+    """Parse `key=value key="quoted value"` pairs from a directive into an ordered list."""
+    pairs = []
+    for m in re.finditer(r'([\w-]+)=(?:"([^"]*)"|(\S+))', param_str):
+        value = m.group(2) if m.group(2) is not None else m.group(3)
+        pairs.append((m.group(1), value))
+    return pairs
+
+
+def _parse_page_property_rows(table_text):
+    """Parse a markdown table body into rows of cells, dropping separators and the header row."""
+    rows = []
+    for line in table_text.splitlines():
+        line = line.strip()
+        if "|" not in line:
+            continue
+        cells = [c.strip() for c in line.split("|")]
+        if cells and cells[0] == "":
+            cells = cells[1:]
+        if cells and cells[-1] == "":
+            cells = cells[:-1]
+        if not cells:
+            continue
+        if all(re.fullmatch(r":?-+:?", c) for c in cells):
+            continue  # separator row
+        rows.append(cells)
+    # First non-separator row is the cosmetic header; discard it.
+    return rows[1:] if rows else []
+
+
+def _page_property_cell(cell):
+    """Render a single table cell to inline Confluence content.
+
+    Block HTML (e.g. an inline `<ol>` list) passes through untouched; simple text
+    is run through the markdown parser and unwrapped from its enclosing paragraph.
+    """
+    html = md_lib.markdown(cell, extensions=MD_EXTENSIONS).strip()
+    m = re.match(r"^<p>(.*)</p>$", html, re.DOTALL)
+    if m:
+        html = m.group(1)
+    return html
+
+
+def _build_details_macro(macro_id, rows):
+    """Build a Confluence `details` (Page Properties) macro from parsed table rows."""
+    trs = []
+    for cells in rows:
+        if not cells:
+            continue
+        parts = [f"<th>{_page_property_cell(cells[0])}</th>"]
+        parts.extend(f"<td>{_page_property_cell(c)}</td>" for c in cells[1:])
+        trs.append("<tr>" + "".join(parts) + "</tr>")
+    id_param = f'<ac:parameter ac:name="id">{macro_id}</ac:parameter>' if macro_id else ""
+    return (
+        f'<ac:structured-macro ac:name="details" ac:schema-version="1">'
+        f"{id_param}<ac:rich-text-body><table><tbody>"
+        f'{"".join(trs)}</tbody></table></ac:rich-text-body></ac:structured-macro>'
+    )
+
+
+def extract_page_properties(md_text):
+    """Replace page-properties directive blocks with placeholders; return (text, mapping)."""
+    blocks = {}
+    counter = [0]
+
+    def _extract(m):
+        rows = _parse_page_property_rows(m.group("table"))
+        key = f"PAGEPROPSBLOCK{counter[0]}"
+        blocks[key] = (m.group("id"), rows)
+        counter[0] += 1
+        return key
+
+    md_text = re.sub(
+        r"<!-- ?page-properties(?!-report)(?: +id=(?P<id>\S+?))? ?-->[ \t]*\n"
+        r"(?P<table>(?:[ \t]*\|.*\n?)+)",
+        _extract,
+        md_text,
+    )
+    return md_text, blocks
 
 
 def md_to_confluence_html(md_text):
@@ -497,6 +725,10 @@ def md_to_confluence_html(md_text):
         flags=re.DOTALL,
     )
 
+    # Extract page-properties blocks before parsing (inline tokens above are already
+    # converted, so cell values carry their status/user/date/jira XML).
+    md_text, page_property_blocks = extract_page_properties(md_text)
+
     # Extract colspan rows from markdown tables before parsing.
     # || TEXT || rows become placeholders that survive markdown table parsing.
     colspan_rows = {}
@@ -602,6 +834,31 @@ def md_to_confluence_html(md_text):
         )
         html = html.replace(f"<p>{key}</p>", expand_xml)
         html = html.replace(key, expand_xml)
+
+    # Page Properties Report directive -> detailssummary macro. Done after the
+    # markdown parse because python-markdown preserves HTML comments verbatim
+    # (so the macro is not wrapped in a <p> tag).
+    def _replace_report(m):
+        params = parse_directive_params(m.group(1))
+        param_xml = "".join(
+            f'<ac:parameter ac:name="{k}">{v}</ac:parameter>' for k, v in params
+        )
+        return (
+            f'<ac:structured-macro ac:name="detailssummary" ac:schema-version="1">'
+            f'{param_xml}</ac:structured-macro>'
+        )
+
+    html = re.sub(
+        r'<!-- ?page-properties-report +([^>]*?) ?-->',
+        _replace_report,
+        html,
+    )
+
+    # Restore page-properties block placeholders with the details macro XML
+    for key, (macro_id, rows) in page_property_blocks.items():
+        macro = _build_details_macro(macro_id, rows)
+        html = html.replace(f"<p>{key}</p>", macro)
+        html = html.replace(key, macro)
 
     # Restore passthrough blocks
     html = restore_passthrough_blocks(html, passthrough_mapping)

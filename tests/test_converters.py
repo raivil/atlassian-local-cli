@@ -1,8 +1,12 @@
 import os
 
 from atlassian_local_cli.converters import (
+    extract_page_property_divs,
     extract_passthrough_footer,
+    extract_report_macros,
     extract_unknown_macros,
+    find_details_ids,
+    find_report_params,
     md_to_confluence_html,
     postprocess_export_md,
     preprocess_export_html,
@@ -180,7 +184,7 @@ class TestPostprocessExportMd:
 
 class TestPassthrough:
     UNKNOWN_MACRO = '<ac:structured-macro ac:name="cheese"><ac:parameter ac:name="title">Details</ac:parameter><ac:rich-text-body><p>Hidden content</p></ac:rich-text-body></ac:structured-macro>'
-    NESTED_MACRO = '<ac:structured-macro ac:name="details"><ac:rich-text-body><ac:structured-macro ac:name="status"><ac:parameter ac:name="title">OK</ac:parameter></ac:structured-macro></ac:rich-text-body></ac:structured-macro>'
+    NESTED_MACRO = '<ac:structured-macro ac:name="cheese"><ac:rich-text-body><ac:structured-macro ac:name="status"><ac:parameter ac:name="title">OK</ac:parameter></ac:structured-macro></ac:rich-text-body></ac:structured-macro>'
 
     def test_extract_unknown_macros(self):
         storage = f'<p>Before</p>{self.UNKNOWN_MACRO}<p>After</p>'
@@ -565,3 +569,288 @@ class TestRewriteLocalImages:
         result, images = rewrite_local_images(html, str(tmp_path))
         assert result == html
         assert images == []
+
+
+class TestPagePropertiesUpload:
+    """Markdown page-properties directive -> Confluence details macro."""
+
+    def test_basic_with_id(self):
+        md = (
+            "<!-- page-properties id=prd -->\n"
+            "| Property | Value |\n"
+            "| --- | --- |\n"
+            "| Status | Active |\n"
+            "| Priority | B2 |\n"
+        )
+        result = md_to_confluence_html(md)
+        assert '<ac:structured-macro ac:name="details" ac:schema-version="1">' in result
+        assert '<ac:parameter ac:name="id">prd</ac:parameter>' in result
+        assert "<ac:rich-text-body>" in result
+        assert "<tr><th>Status</th><td>Active</td></tr>" in result
+        assert "<tr><th>Priority</th><td>B2</td></tr>" in result
+
+    def test_header_row_discarded(self):
+        md = (
+            "<!-- page-properties id=prd -->\n"
+            "| Property | Value |\n"
+            "| --- | --- |\n"
+            "| Status | Active |\n"
+        )
+        result = md_to_confluence_html(md)
+        assert "<th>Property</th>" not in result
+        assert "<td>Value</td>" not in result
+
+    def test_no_id(self):
+        md = (
+            "<!-- page-properties -->\n"
+            "| K | V |\n"
+            "| --- | --- |\n"
+            "| Alpha | 1 |\n"
+        )
+        result = md_to_confluence_html(md)
+        assert '<ac:structured-macro ac:name="details" ac:schema-version="1">' in result
+        assert 'ac:name="id"' not in result
+        assert "<tr><th>Alpha</th><td>1</td></tr>" in result
+
+    def test_status_token_in_cell(self):
+        md = (
+            "<!-- page-properties -->\n"
+            "| K | V |\n"
+            "| --- | --- |\n"
+            "| Status | {status:In Progress|yellow} |\n"
+        )
+        result = md_to_confluence_html(md)
+        assert "<th>Status</th>" in result
+        assert '<ac:structured-macro ac:name="status">' in result
+        assert '<ac:parameter ac:name="title">In Progress</ac:parameter>' in result
+
+    def test_link_in_cell(self):
+        md = (
+            "<!-- page-properties -->\n"
+            "| K | V |\n"
+            "| --- | --- |\n"
+            "| Epic | [HGR-1](https://x/HGR-1) |\n"
+        )
+        result = md_to_confluence_html(md)
+        assert '<td><a href="https://x/HGR-1">HGR-1</a></td>' in result
+
+    def test_mention_in_cell(self):
+        md = (
+            "<!-- page-properties -->\n"
+            "| K | V |\n"
+            "| --- | --- |\n"
+            "| Owner | @rraivil |\n"
+        )
+        result = md_to_confluence_html(md)
+        assert '<ri:user ri:username="rraivil" />' in result
+
+    def test_inline_html_list_cell(self):
+        md = (
+            "<!-- page-properties -->\n"
+            "| K | V |\n"
+            "| --- | --- |\n"
+            "| Phase | <ol><li>a</li><li>b</li></ol> |\n"
+        )
+        result = md_to_confluence_html(md)
+        assert "<td><ol><li>a</li><li>b</li></ol></td>" in result
+
+    def test_multiple_blocks(self):
+        md = (
+            "<!-- page-properties id=a -->\n"
+            "| K | V |\n"
+            "| --- | --- |\n"
+            "| X | 1 |\n"
+            "\n"
+            "<!-- page-properties id=b -->\n"
+            "| K | V |\n"
+            "| --- | --- |\n"
+            "| Y | 2 |\n"
+        )
+        result = md_to_confluence_html(md)
+        assert result.count('ac:name="details"') == 2
+        assert '<ac:parameter ac:name="id">a</ac:parameter>' in result
+        assert '<ac:parameter ac:name="id">b</ac:parameter>' in result
+
+    def test_not_wrapped_in_p_tag(self):
+        md = (
+            "<!-- page-properties id=prd -->\n"
+            "| K | V |\n"
+            "| --- | --- |\n"
+            "| X | 1 |\n"
+        )
+        result = md_to_confluence_html(md)
+        assert "<p><ac:structured-macro" not in result
+        assert "PAGEPROPS-BLOCK" not in result
+
+    def test_body_after_block(self):
+        md = (
+            "<!-- page-properties id=prd -->\n"
+            "| K | V |\n"
+            "| --- | --- |\n"
+            "| X | 1 |\n"
+            "\n"
+            "## Heading\n"
+            "\nSome text.\n"
+        )
+        result = md_to_confluence_html(md)
+        assert '<ac:structured-macro ac:name="details"' in result
+        assert "<h2>Heading</h2>" in result
+        assert "<p>Some text.</p>" in result
+
+
+class TestPagePropertiesReportUpload:
+    """Markdown page-properties-report directive -> Confluence detailssummary macro."""
+
+    def test_basic_label(self):
+        md = "<!-- page-properties-report label=requirements -->\n"
+        result = md_to_confluence_html(md)
+        assert '<ac:structured-macro ac:name="detailssummary" ac:schema-version="1">' in result
+        assert '<ac:parameter ac:name="label">requirements</ac:parameter>' in result
+
+    def test_quoted_value_with_spaces(self):
+        md = '<!-- page-properties-report label=requirements headings="Status, Priority" -->\n'
+        result = md_to_confluence_html(md)
+        assert '<ac:parameter ac:name="headings">Status, Priority</ac:parameter>' in result
+
+    def test_multiple_params(self):
+        md = "<!-- page-properties-report label=req analytics-key=req -->\n"
+        result = md_to_confluence_html(md)
+        assert '<ac:parameter ac:name="label">req</ac:parameter>' in result
+        assert '<ac:parameter ac:name="analytics-key">req</ac:parameter>' in result
+
+    def test_not_wrapped_in_p_tag(self):
+        md = "<!-- page-properties-report label=req -->\n"
+        result = md_to_confluence_html(md)
+        assert "<p><ac:structured-macro" not in result
+
+
+class TestPagePropertiesExport:
+    """Confluence details macro (export_view div + storage) -> markdown directive."""
+
+    def _storage(self, macro_id="prd"):
+        idp = f'<ac:parameter ac:name="id">{macro_id}</ac:parameter>' if macro_id else ""
+        return (
+            f'<ac:structured-macro ac:name="details" ac:schema-version="1">{idp}'
+            "<ac:rich-text-body><table><tbody>"
+            "<tr><th>Status</th><td>Active</td></tr>"
+            "</tbody></table></ac:rich-text-body></ac:structured-macro>"
+        )
+
+    def test_find_details_ids(self):
+        storage = self._storage("prd") + self._storage(None)
+        assert find_details_ids(storage) == ["prd", None]
+
+    def test_div_becomes_directive_and_table(self):
+        export = (
+            "<div class='plugin-tabmeta-details'><table><tbody>"
+            "<tr><th>Status</th><td>Active</td></tr>"
+            "<tr><th>Priority</th><td>B2</td></tr>"
+            "</tbody></table></div>"
+        )
+        html, mapping = extract_page_property_divs(export, self._storage("prd"))
+        assert len(mapping) == 1
+        block = next(iter(mapping.values()))
+        assert "<!-- page-properties id=prd -->" in block
+        assert "| Status | Active |" in block
+        assert "| Priority | B2 |" in block
+        assert "plugin-tabmeta-details" not in html
+
+    def test_no_id_directive(self):
+        export = (
+            "<div class='plugin-tabmeta-details'><table><tbody>"
+            "<tr><th>A</th><td>1</td></tr></tbody></table></div>"
+        )
+        _, mapping = extract_page_property_divs(export, self._storage(None))
+        block = next(iter(mapping.values()))
+        assert "<!-- page-properties -->" in block
+        assert "id=" not in block
+
+    def test_status_cell_becomes_token(self):
+        export = (
+            "<div class='plugin-tabmeta-details'><table><tbody>"
+            '<tr><th>Status</th><td><span class="status-macro aui-lozenge aui-lozenge-moved">'
+            "IN PROGRESS</span></td></tr></tbody></table></div>"
+        )
+        _, mapping = extract_page_property_divs(export, self._storage("prd"))
+        assert "{status:IN PROGRESS|yellow}" in next(iter(mapping.values()))
+
+    def test_list_cell_becomes_inline_html(self):
+        export = (
+            "<div class='plugin-tabmeta-details'><table><tbody>"
+            '<tr><th>Phase</th><td><div class="content-wrapper"><ol><li>a</li><li>b</li></ol>'
+            "</div></td></tr></tbody></table></div>"
+        )
+        _, mapping = extract_page_property_divs(export, self._storage(None))
+        assert "<ol><li>a</li><li>b</li></ol>" in next(iter(mapping.values()))
+
+    def test_no_details_returns_unchanged(self):
+        export = "<p>hello</p>"
+        html, mapping = extract_page_property_divs(export, "")
+        assert html == export
+        assert mapping == {}
+
+    def test_export_then_upload_roundtrip(self):
+        export = (
+            "<div class='plugin-tabmeta-details'><table><tbody>"
+            "<tr><th>Status</th><td>Active</td></tr>"
+            "<tr><th>Priority</th><td>B2</td></tr>"
+            "</tbody></table></div>"
+        )
+        _, mapping = extract_page_property_divs(export, self._storage("prd"))
+        block = next(iter(mapping.values()))
+        html = md_to_confluence_html(block + "\n")
+        assert '<ac:structured-macro ac:name="details" ac:schema-version="1">' in html
+        assert '<ac:parameter ac:name="id">prd</ac:parameter>' in html
+        assert "<tr><th>Status</th><td>Active</td></tr>" in html
+        assert "<tr><th>Priority</th><td>B2</td></tr>" in html
+
+
+class TestPagePropertiesReportExport:
+    def test_find_report_params_legacy_macro(self):
+        storage = (
+            '<ac:macro ac:name="detailssummary">'
+            '<ac:parameter ac:name="label">requirements</ac:parameter>'
+            '<ac:parameter ac:name="analytics-key">requirements</ac:parameter>'
+            "</ac:macro>"
+        )
+        assert find_report_params(storage) == [
+            [("label", "requirements"), ("analytics-key", "requirements")]
+        ]
+
+    def test_table_becomes_directive(self):
+        export = (
+            '<table class="aui metadata-summary-macro requirements">'
+            "<tbody><tr><td>x</td></tr></tbody></table>"
+        )
+        storage = (
+            '<ac:macro ac:name="detailssummary">'
+            '<ac:parameter ac:name="label">requirements</ac:parameter></ac:macro>'
+        )
+        html, mapping = extract_report_macros(export, storage)
+        assert len(mapping) == 1
+        assert next(iter(mapping.values())) == "<!-- page-properties-report label=requirements -->"
+        assert "metadata-summary-macro" not in html
+
+
+class TestPassthroughLegacyMacro:
+    def test_legacy_ac_macro_captured(self):
+        storage = (
+            '<ac:macro ac:name="widget"><ac:parameter ac:name="url">x</ac:parameter></ac:macro>'
+        )
+        _, mapping = extract_unknown_macros("<p>body</p>", storage)
+        assert len(mapping) == 1
+        assert '<ac:macro ac:name="widget">' in next(iter(mapping.values()))
+
+    def test_details_not_captured_as_passthrough(self):
+        storage = (
+            '<ac:structured-macro ac:name="details"><ac:rich-text-body>'
+            "<table><tbody><tr><th>A</th><td>1</td></tr></tbody></table>"
+            "</ac:rich-text-body></ac:structured-macro>"
+        )
+        _, mapping = extract_unknown_macros("<p>x</p>", storage)
+        assert mapping == {}
+
+    def test_detailssummary_not_captured_as_passthrough(self):
+        storage = '<ac:macro ac:name="detailssummary"><ac:parameter ac:name="label">r</ac:parameter></ac:macro>'
+        _, mapping = extract_unknown_macros("<p>x</p>", storage)
+        assert mapping == {}
