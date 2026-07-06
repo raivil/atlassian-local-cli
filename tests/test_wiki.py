@@ -1,6 +1,7 @@
 from argparse import Namespace
 from unittest.mock import MagicMock, patch
 
+from atlassian_local_cli.converters import md_to_confluence_html
 from atlassian_local_cli.wiki import wiki_create, wiki_export, wiki_update
 
 MOCK_PAGE = {
@@ -60,6 +61,70 @@ class TestWikiExport:
         assert "space: DEV" in output
         assert "version: 3" in output
         assert "author: Test Author" in output
+
+
+class TestWikiExportUnsafeTable:
+    """A table with block-content cells must survive export -> update verbatim,
+    not get scrambled (the confirmed data-loss bug)."""
+
+    STORAGE_TABLE = (
+        "<table><tbody>"
+        "<tr><th>Date</th><th>Activity</th><th>Status</th></tr>"
+        "<tr><td>Week of May 4</td>"
+        "<td><p>Reset staging0</p><h4>4-6 hours</h4></td>"
+        "<td></td></tr>"
+        "<tr><td>Mon May 11</td><td>Migrate</td>"
+        '<td><ac:structured-macro ac:name="status">'
+        '<ac:parameter ac:name="colour">Green</ac:parameter>'
+        '<ac:parameter ac:name="title">DONE</ac:parameter>'
+        "</ac:structured-macro></td></tr>"
+        "</tbody></table>"
+    )
+    EXPORT_TABLE = (
+        '<table class="wrapped"><tbody>'
+        "<tr><th>Date</th><th>Activity</th><th>Status</th></tr>"
+        "<tr><td>Week of May 4</td>"
+        "<td><p>Reset staging0</p><h4>4-6 hours</h4></td>"
+        "<td></td></tr>"
+        "<tr><td>Mon May 11</td><td>Migrate</td>"
+        '<td><span class="status-macro aui-lozenge aui-lozenge-success">DONE</span></td></tr>'
+        "</tbody></table>"
+    )
+
+    def _page(self):
+        page = {k: v for k, v in MOCK_PAGE.items() if k != "body"}
+        page["body"] = {
+            "export_view": {"value": self.EXPORT_TABLE},
+            "storage": {"value": self.STORAGE_TABLE},
+        }
+        return page
+
+    @patch("atlassian_local_cli.wiki.get_config")
+    @patch("atlassian_local_cli.wiki.create_confluence")
+    def test_export_then_update_preserves_table_verbatim(
+        self, mock_create, mock_config, tmp_path
+    ):
+        mock_config.return_value = MagicMock(wiki_url="https://wiki.test.com/")
+        mock_confluence = MagicMock()
+        mock_confluence.get_page_by_id.return_value = self._page()
+        mock_create.return_value = mock_confluence
+
+        outfile = str(tmp_path / "out.md")
+        wiki_export(Namespace(page_id="12345", output=outfile))
+        exported_md = (tmp_path / "out.md").read_text()
+
+        # The lossy rendered table must NOT appear as editable markdown; it lives in
+        # the passthrough footer instead.
+        assert "confluence-passthrough-start" in exported_md
+        assert self.STORAGE_TABLE in exported_md
+
+        # Re-import the exported markdown and confirm no corruption.
+        html = md_to_confluence_html(exported_md)
+        assert html.count("<table") == 1
+        assert self.STORAGE_TABLE in html
+        after_table = html[html.rindex("</table>") + len("</table>"):]
+        assert "<h4>" not in after_table
+        assert "Mon May 11" not in after_table
 
 
 class TestWikiUpdate:

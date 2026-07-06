@@ -486,6 +486,122 @@ def extract_report_macros(export_html, storage_html):
     return str(soup), mapping
 
 
+def _find_top_level_tables(storage_html):
+    """Return verbatim `<table>…</table>` XML for top-level tables in document order.
+
+    "Top-level" means not nested inside another `<table>` and not inside an
+    `<ac:structured-macro>` / `<ac:macro>` (those are macro-rendered and handled by
+    the dedicated passthrough / page-property paths). Returns the raw storage
+    substrings so the tables can be preserved byte-for-byte.
+    """
+    open_tag = "<table"
+    close_tag = "</table>"
+    macro_open = re.compile(r"<ac:(?:structured-)?macro\b")
+    macro_close = "</ac:macro>"
+    macro_struct_close = "</ac:structured-macro>"
+
+    def _inside_macro(idx):
+        """True if position idx sits inside an unclosed ac:(structured-)macro."""
+        depth = 0
+        for m in re.finditer(
+            r"<ac:(?:structured-)?macro\b|</ac:structured-macro>|</ac:macro>",
+            storage_html[:idx],
+        ):
+            depth += 1 if m.group(0).startswith("<ac:") else -1
+        return depth > 0
+
+    results = []
+    pos = 0
+    while True:
+        start = storage_html.find(open_tag, pos)
+        if start == -1:
+            break
+        # Ensure it's actually a <table ...> / <table> tag, not <tablefoo>.
+        after = storage_html[start + len(open_tag): start + len(open_tag) + 1]
+        if after not in (">", " ", "\t", "\n", "\r", "/"):
+            pos = start + len(open_tag)
+            continue
+        end = storage_html.find(close_tag, start)
+        if end == -1:
+            break
+        end += len(close_tag)
+        # Handle nested tables: count opens vs closes within [start, end).
+        while storage_html.count(open_tag, start, end) > storage_html.count(close_tag, start, end):
+            nxt = storage_html.find(close_tag, end)
+            if nxt == -1:  # pragma: no cover
+                break
+            end = nxt + len(close_tag)
+        if not _inside_macro(start):
+            results.append(storage_html[start:end])
+        pos = end
+    return results
+
+
+_BLOCK_CELL_TAGS = {"h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "table"}
+
+
+def _cell_is_unsafe(cell):
+    """True if a rendered `<td>`/`<th>` cannot be represented in a single GFM line.
+
+    Unsafe = contains a heading, list, or nested table; has multiple block-level
+    children; or embeds a non-inline macro. An inline status lozenge
+    (`<span class="status-macro">`) alone is safe and stays editable.
+    """
+    for tag in cell.find_all(True):
+        if tag.name in _BLOCK_CELL_TAGS:
+            return True
+    # Multiple block-level (<p>/<div>) children indicate multi-paragraph content
+    # that html2text would spread across several lines.
+    block_children = [c for c in cell.find_all(["p", "div"], recursive=True)]
+    if len(block_children) > 1:
+        return True
+    return False
+
+
+def extract_unsafe_tables(export_html, storage_html, start_counter=0):
+    """Preserve tables with block-content cells verbatim via the passthrough footer.
+
+    Such tables render across multiple lines through html2text, producing
+    GFM-invalid markdown that Python-Markdown then re-parses lossily (leaking cell
+    content out of the table). Instead of round-tripping them, we swap each unsafe
+    table in the export-view HTML for a passthrough placeholder paragraph and store
+    the ORIGINAL storage-format `<table>` XML so it is restored byte-for-byte.
+
+    Export-view tables are matched to storage tables by document order among
+    top-level tables. Report/page-property tables are removed from the export view
+    before this runs, so the remainder correspond 1:1. If the counts don't line up
+    we refuse to guess and leave every table unconverted.
+
+    Returns (new_export_html, {marker: verbatim_storage_xml}).
+    """
+    soup = BeautifulSoup(export_html, "html.parser")
+    export_tables = [t for t in soup.find_all("table") if t.find_parent("table") is None]
+    if not export_tables:
+        return export_html, {}
+
+    storage_tables = _find_top_level_tables(storage_html)
+    if len(storage_tables) != len(export_tables):
+        # Counts don't line up: never pass through the wrong XML. Leave unconverted.
+        return export_html, {}
+
+    mapping = {}
+    counter = start_counter
+    for export_table, storage_xml in zip(export_tables, storage_tables):
+        cells = export_table.find_all(["td", "th"])
+        if not any(_cell_is_unsafe(c) for c in cells):
+            continue  # simple table: keep editable markdown behavior unchanged
+        marker = f"{PASSTHROUGH_PREFIX}{counter}"
+        counter += 1
+        mapping[marker] = storage_xml
+        placeholder = soup.new_tag("p")
+        placeholder.string = marker
+        export_table.replace_with(placeholder)
+
+    if not mapping:
+        return export_html, {}
+    return str(soup), mapping
+
+
 def unescape_html(text):
     """Unescape HTML entities inside code blocks for CDATA."""
     return (text

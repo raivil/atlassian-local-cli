@@ -5,6 +5,7 @@ from atlassian_local_cli.converters import (
     extract_passthrough_footer,
     extract_report_macros,
     extract_unknown_macros,
+    extract_unsafe_tables,
     find_details_ids,
     find_report_params,
     md_to_confluence_html,
@@ -854,3 +855,104 @@ class TestPassthroughLegacyMacro:
         storage = '<ac:macro ac:name="detailssummary"><ac:parameter ac:name="label">r</ac:parameter></ac:macro>'
         _, mapping = extract_unknown_macros("<p>x</p>", storage)
         assert mapping == {}
+
+
+class TestUnsafeTables:
+    """Tables whose cells contain block content must be preserved verbatim, not
+    lossily round-tripped through markdown (which corrupts them)."""
+
+    # Storage-format table whose cells contain a heading and status macros.
+    STORAGE_TABLE = (
+        "<table><tbody>"
+        "<tr><th>Date</th><th>Activity</th><th>Status</th></tr>"
+        "<tr><td>Week of May 4</td>"
+        "<td><p>Reset staging0</p><h4>4-6 hours</h4></td>"
+        "<td></td></tr>"
+        "<tr><td>Mon May 11</td><td>Migrate</td>"
+        '<td><ac:structured-macro ac:name="status">'
+        '<ac:parameter ac:name="colour">Green</ac:parameter>'
+        '<ac:parameter ac:name="title">DONE</ac:parameter>'
+        "</ac:structured-macro></td></tr>"
+        "</tbody></table>"
+    )
+    # Export-view rendering of the same table (block cells, rendered status lozenge).
+    EXPORT_TABLE = (
+        '<table class="wrapped"><tbody>'
+        "<tr><th>Date</th><th>Activity</th><th>Status</th></tr>"
+        "<tr><td>Week of May 4</td>"
+        "<td><p>Reset staging0</p><h4>4-6 hours</h4></td>"
+        "<td></td></tr>"
+        "<tr><td>Mon May 11</td><td>Migrate</td>"
+        '<td><span class="status-macro aui-lozenge aui-lozenge-success">DONE</span></td></tr>'
+        "</tbody></table>"
+    )
+
+    def test_unsafe_table_extracted_to_passthrough(self):
+        export, mapping = extract_unsafe_tables(self.EXPORT_TABLE, self.STORAGE_TABLE, 0)
+        assert len(mapping) == 1
+        marker, xml = next(iter(mapping.items()))
+        # The verbatim storage table is preserved, and the export view now carries
+        # a placeholder paragraph instead of the lossy table.
+        assert xml == self.STORAGE_TABLE
+        assert f"<p>{marker}</p>" in export
+        assert "<table" not in export
+
+    def test_simple_table_left_untouched(self):
+        export = "<table><tbody><tr><td>a</td><td>b</td></tr></tbody></table>"
+        storage = export
+        new_export, mapping = extract_unsafe_tables(export, storage, 0)
+        assert mapping == {}
+        assert new_export == export
+
+    def test_status_lozenge_only_cell_is_safe(self):
+        """A cell whose only content is an inline status lozenge stays editable."""
+        export = (
+            "<table><tbody><tr><td>x</td>"
+            '<td><span class="status-macro aui-lozenge aui-lozenge-success">DONE</span></td>'
+            "</tr></tbody></table>"
+        )
+        storage = (
+            "<table><tbody><tr><td>x</td>"
+            '<td><ac:structured-macro ac:name="status">'
+            '<ac:parameter ac:name="title">DONE</ac:parameter>'
+            "</ac:structured-macro></td></tr></tbody></table>"
+        )
+        _, mapping = extract_unsafe_tables(export, storage, 0)
+        assert mapping == {}
+
+    def test_count_mismatch_leaves_tables_unconverted(self):
+        """When export/storage top-level table counts differ, never guess."""
+        export = self.EXPORT_TABLE  # 1 export table
+        storage = self.STORAGE_TABLE + self.STORAGE_TABLE  # 2 storage tables
+        new_export, mapping = extract_unsafe_tables(export, storage, 0)
+        assert mapping == {}
+        assert new_export == export
+
+    def test_counter_offset_respected(self):
+        _, mapping = extract_unsafe_tables(self.EXPORT_TABLE, self.STORAGE_TABLE, 5)
+        assert list(mapping) == ["CONFLUENCE-PASSTHROUGH-5"]
+
+    def test_list_cell_is_unsafe(self):
+        export = (
+            "<table><tbody><tr><td><ul><li>a</li><li>b</li></ul></td></tr></tbody></table>"
+        )
+        storage = export
+        _, mapping = extract_unsafe_tables(export, storage, 0)
+        assert len(mapping) == 1
+
+    def test_roundtrip_preserves_unsafe_table_verbatim(self):
+        """Full export -> markdown -> update round-trip must not corrupt the table."""
+        export, mapping = extract_unsafe_tables(self.EXPORT_TABLE, self.STORAGE_TABLE, 0)
+        # Simulate the export markdown: the placeholder paragraph becomes a bare
+        # marker line, and the passthrough footer carries the verbatim XML.
+        marker = next(iter(mapping))
+        md = f"# T\n\n{marker}\n" + serialize_passthrough_footer(mapping)
+        html = md_to_confluence_html(md)
+        # Exactly one table, preserved verbatim, and nothing leaked outside it.
+        assert html.count("<table") == 1
+        assert self.STORAGE_TABLE in html
+        # The heading survives only INSIDE the preserved table, never as a leaked
+        # sibling after the closing </table> (the original corruption signature).
+        after_table = html[html.rindex("</table>") + len("</table>"):]
+        assert "<h4>" not in after_table
+        assert "<p>Mon May 11" not in html  # the second row must not leak out either

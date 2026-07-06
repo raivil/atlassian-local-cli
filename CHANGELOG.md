@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.3.1 (2026-07-06)
+
+### Fixed
+- `wiki-export` → `wiki-update` no longer corrupts tables whose cells contain block-level content (headings, lists, multiple paragraphs, non-inline macros). Such cells render across multiple lines through `html2text`, producing GFM-invalid markdown that Python-Markdown then re-parses lossily — leaking cell content out of the table as sibling `<h4>`/`<p>` elements and destroying the table on round-trip. Unsafe tables are now preserved **verbatim** in storage format via the passthrough footer: on export each is matched to its storage-format `<table>` by document order (report/page-property tables are removed first, so the remainder correspond 1:1) and swapped for a passthrough placeholder; if the export-view and storage table counts don't line up, it refuses to substitute and leaves every table unconverted. Simple, inline-only tables continue to convert to editable Markdown unchanged (a lone inline status lozenge stays safe/editable). Adds `extract_unsafe_tables`, `_cell_is_unsafe`, and `_find_top_level_tables` in `converters.py`, wired into `wiki_export`; 8 regression tests.
+
 ## v2.2.0 (2026-06-01)
 
 ### Fixed
