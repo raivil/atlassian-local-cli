@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.3.2 (2026-07-15)
+
+### Fixed
+- `wiki-export` → `wiki-update` no longer corrupts (or destroys) a table that has an **empty leading or trailing cell** — e.g. a comparison table with an empty top-left corner and headers across the top. `html2text` renders an empty edge cell as a bare edge pipe, which GFM treats as an optional delimiter: the cell collapses and the row ends up with fewer columns than the `---|---` separator. Python-Markdown then refuses to parse the block as a table at all and re-emits it as a `<p>` full of `<br/>`s, so the table is lost on round-trip. Empty cells are now filled with a sentinel before `html2text` (`_fill_empty_table_cells`, at the end of `preprocess_export_html`) and stripped afterwards, re-emitting each affected row with explicit edge pipes so empty cells survive GFM re-parsing (`_restore_empty_table_cells` in `postprocess_export_md`). Only pages that actually contain an empty cell are touched — all other output is byte-identical. Adds 4 regression tests.
+
 ## v2.3.1 (2026-07-06)
 
 ### Fixed

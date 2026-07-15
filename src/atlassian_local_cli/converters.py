@@ -16,6 +16,14 @@ KNOWN_MACRO_TYPES = {
 PASSTHROUGH_PREFIX = "CONFLUENCE-PASSTHROUGH-"
 MD_EXTENSIONS = ["tables", "fenced_code", "footnotes"]
 
+# Sentinel placed in empty table cells before html2text and stripped afterwards.
+# html2text renders an empty leading/trailing <th>/<td> as a bare edge pipe, which GFM
+# treats as an optional delimiter — the cell collapses and the row no longer matches the
+# separator's column count (Python-Markdown then refuses the whole table). SOH-wrapped so
+# it can never collide with real page content. See _fill_empty_table_cells /
+# _restore_empty_table_cells.
+EMPTY_CELL_SENTINEL = "\x01EMPTYCELL\x01"
+
 LOZENGE_TO_COLOUR = {
     "aui-lozenge-success": "green",
     "aui-lozenge-error": "red",
@@ -201,6 +209,28 @@ def convert_inline_confluence_tokens(html):
     return html
 
 
+def _fill_empty_table_cells(html):
+    """Fill empty `<td>`/`<th>` cells with a sentinel so html2text can't drop them.
+
+    An empty leading or trailing cell renders as a bare edge pipe that GFM discards,
+    leaving the row with fewer columns than the table separator (and Python-Markdown then
+    refuses to parse the table at all). The sentinel is removed again in
+    `postprocess_export_md`. Only touches pages that actually have empty cells — otherwise
+    the input string is returned unchanged.
+    """
+    if "<t" not in html:  # no <table>/<td>/<th> at all — cheap bail-out
+        return html
+    soup = BeautifulSoup(html, "html.parser")
+    changed = False
+    for cell in soup.find_all(["td", "th"]):
+        if cell.get_text(strip=True) or cell.find("img"):
+            continue  # has text or an image → not empty
+        cell.clear()
+        cell.append(EMPTY_CELL_SENTINEL)
+        changed = True
+    return str(soup) if changed else html
+
+
 def preprocess_export_html(html):
     """Convert Confluence-specific HTML elements to markdown-friendly tokens before html2text."""
 
@@ -328,11 +358,39 @@ def preprocess_export_html(html):
         html,
     )
 
+    # Last, after all cell-content rewrites: guard empty cells against html2text.
+    html = _fill_empty_table_cells(html)
+
     return html
+
+
+def _restore_empty_table_cells(md_text):
+    """Strip the empty-cell sentinel, re-emitting each affected row with explicit edge
+    pipes so an empty leading/trailing cell survives GFM re-parsing (a bare-space cell at
+    a row edge would be re-collapsed). Column counts are preserved because the sentinel
+    kept every cell present through html2text.
+    """
+    out = []
+    for line in md_text.split("\n"):
+        if EMPTY_CELL_SENTINEL not in line:
+            out.append(line)
+            continue
+        body = line.rstrip()
+        trailing = line[len(body):]           # keep html2text's row-terminating spaces
+        body = body.strip()
+        if body.startswith("|"):
+            body = body[1:]
+        if body.endswith("|"):
+            body = body[:-1]
+        cells = [c.strip().replace(EMPTY_CELL_SENTINEL, "") for c in body.split("|")]
+        out.append("| " + " | ".join(cells) + " |" + trailing)
+    return "\n".join(out)
 
 
 def postprocess_export_md(md_text):
     """Convert placeholders back to markdown syntax after html2text."""
+    if EMPTY_CELL_SENTINEL in md_text:
+        md_text = _restore_empty_table_cells(md_text)
     md_text = re.sub(r'TASK-CHECKED: (.+)', r'- [x] \1', md_text)
     md_text = re.sub(r'TASK-UNCHECKED: (.+)', r'- [ ] \1', md_text)
 

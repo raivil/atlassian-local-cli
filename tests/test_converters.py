@@ -1,4 +1,7 @@
 import os
+import re
+
+import html2text
 
 from atlassian_local_cli.converters import (
     extract_page_property_divs,
@@ -956,3 +959,84 @@ class TestUnsafeTables:
         after_table = html[html.rindex("</table>") + len("</table>"):]
         assert "<h4>" not in after_table
         assert "<p>Mon May 11" not in html  # the second row must not leak out either
+
+
+def _export_to_md(export_html):
+    """Mirror wiki_export's storage/export-HTML → markdown conversion pipeline."""
+    html_content = preprocess_export_html(export_html)
+    h = html2text.HTML2Text()
+    h.ignore_links = False
+    h.ignore_images = False
+    h.ignore_emphasis = False
+    return postprocess_export_md(h.handle(html_content))
+
+
+def _cells(row_line):
+    """Split a GFM table row into trimmed cells (dropping one optional edge pipe each side)."""
+    s = row_line.strip()
+    if s.startswith("|"):
+        s = s[1:]
+    if s.endswith("|"):
+        s = s[:-1]
+    return [c.strip() for c in s.split("|")]
+
+
+class TestEmptyTableCells:
+    """html2text drops empty leading/trailing table cells, misaligning the row against the
+    separator (real break: a Topology table with an empty top-left corner). The export
+    pipeline must preserve empty cells so the table stays well-formed."""
+
+    def _table_lines(self, md):
+        lines = [ln for ln in md.splitlines() if "|" in ln]
+        sep_idx = next(i for i, ln in enumerate(lines) if set(ln.strip()) <= set("-|: "))
+        return lines, sep_idx
+
+    def test_empty_leading_header_cell_preserved(self):
+        html = (
+            "<table><tbody>"
+            "<tr><th></th><th>Staging</th><th>Production</th></tr>"
+            "<tr><td>GCP project</td><td>proj-a</td><td>proj-b</td></tr>"
+            "</tbody></table>"
+        )
+        lines, sep_idx = self._table_lines(_export_to_md(html))
+        ncols = len(_cells(lines[sep_idx]))
+        header = _cells(lines[sep_idx - 1])
+        assert ncols == 3
+        assert len(header) == 3          # not collapsed to 2 cells
+        assert header[0] == ""           # empty corner preserved
+        assert header[1:] == ["Staging", "Production"]
+
+    def test_empty_leading_header_roundtrips_to_3_columns(self):
+        html = (
+            "<table><tbody>"
+            "<tr><th></th><th>Staging</th><th>Production</th></tr>"
+            "<tr><td>Region</td><td>us-east1</td><td>us-west1</td></tr>"
+            "</tbody></table>"
+        )
+        confluence = md_to_confluence_html(_export_to_md(html))
+        # md -> storage HTML must yield a 3-column header, not 2 (regex avoids <thead>).
+        assert len(re.findall(r"<th[ >]", confluence)) == 3
+
+    def test_empty_leading_data_cell_preserved(self):
+        html = (
+            "<table><tbody>"
+            "<tr><th>Attr</th><th>A</th><th>B</th></tr>"
+            "<tr><td></td><td>1</td><td>2</td></tr>"
+            "</tbody></table>"
+        )
+        lines, sep_idx = self._table_lines(_export_to_md(html))
+        data = _cells(lines[sep_idx + 1])
+        assert len(data) == 3
+        assert data[0] == ""
+
+    def test_table_without_empty_cells_untouched(self):
+        html = (
+            "<table><tbody>"
+            "<tr><th>A</th><th>B</th></tr>"
+            "<tr><td>1</td><td>2</td></tr>"
+            "</tbody></table>"
+        )
+        md = _export_to_md(html)
+        assert "\x01" not in md          # sentinel must never leak into output
+        lines, sep_idx = self._table_lines(md)
+        assert _cells(lines[sep_idx - 1]) == ["A", "B"]
