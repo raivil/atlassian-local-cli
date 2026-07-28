@@ -81,6 +81,37 @@ def wiki_export(args):
         print(content)
 
 
+def wiki_raw(args):
+    """Dump a page's unconverted HTML. Use this when an export fails, hangs or loses
+    content, to see what the converter was actually handed."""
+    confluence = create_confluence()
+    page = confluence.get_page_by_id(args.page_id, expand="body.export_view,body.storage,version,space")
+
+    bodies = {
+        "storage": page["body"]["storage"]["value"],
+        "export_view": page["body"]["export_view"]["value"],
+    }
+    wanted = list(bodies) if args.format == "both" else [args.format]
+
+    if args.macros:
+        from .converters import _find_top_level_macros
+
+        macros = _find_top_level_macros(bodies["storage"])
+        lines = [f"{len(macros)} top-level macro(s) in storage:"]
+        lines += [f"  {name or '(unnamed)'}{'  [self-closing]' if xml.rstrip().endswith('/>') else ''}" for name, xml in macros]
+        content = "\n".join(lines) + "\n"
+    else:
+        content = "".join(f"<!-- ===== {k} ===== -->\n{bodies[k]}\n" for k in wanted)
+
+    if args.output:
+        os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
+        with open(args.output, "w", encoding="utf-8") as f:
+            f.write(content)
+        print(f"Wrote {args.output}")
+    else:
+        print(content)
+
+
 def _upload_attachments(confluence, page_id, images):
     for filename, abs_path in images:
         confluence.attach_file(abs_path, page_id=page_id, name=filename)

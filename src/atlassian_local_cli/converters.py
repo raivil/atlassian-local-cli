@@ -58,41 +58,43 @@ def _convert_task_list(inner_html):
     return "<br/>".join(lines)
 
 
+def _macro_name(xml):
+    m = re.search(r'ac:name="([^"]*)"', xml)
+    return m.group(1) if m else ""
+
+
+# Opening tag (captures a trailing "/" for self-closing macros) or a closing tag.
+_MACRO_TOKEN_RE = re.compile(r"<ac:structured-macro\b[^>]*?(/?)>|</ac:structured-macro>")
+
+
 def _find_top_level_macros(storage_html):
-    """Find all top-level ac:structured-macro elements with proper nesting support."""
-    open_tag = "<ac:structured-macro"
-    close_tag = "</ac:structured-macro>"
+    """Find all top-level ac:structured-macro elements, honouring nesting.
+
+    Single forward pass over open/close/self-closing tokens. A self-closing macro
+    (`<ac:structured-macro ... />`, e.g. `children`) has no close tag, so it must not
+    count towards nesting depth — treating it as an opener leaves the depth unbalanced
+    and the element unterminated.
+    """
     results = []
-    pos = 0
-    while True:
-        start = storage_html.find(open_tag, pos)
-        if start == -1:
-            break
-        # Find the matching close tag by counting nesting depth
-        depth = 0
-        scan = start
-        while scan < len(storage_html):
-            next_open = storage_html.find(open_tag, scan + 1)
-            next_close = storage_html.find(close_tag, scan + 1)
-            if next_close == -1:  # pragma: no cover
-                break
-            if next_open != -1 and next_open < next_close:
-                depth += 1
-                scan = next_open
-            else:
-                if depth == 0:
-                    end = next_close + len(close_tag)
-                    xml = storage_html[start:end]
-                    name_match = re.search(r'ac:name="([^"]*)"', xml)
-                    name = name_match.group(1) if name_match else ""
-                    results.append((name, xml))
-                    pos = end
-                    break
-                else:
-                    depth -= 1
-                    scan = next_close
-        else:  # pragma: no cover
-            break
+    depth = 0
+    start = None
+    for m in _MACRO_TOKEN_RE.finditer(storage_html):
+        token = m.group(0)
+        if token.startswith("</"):
+            if depth == 0:  # stray close tag
+                continue
+            depth -= 1
+            if depth == 0 and start is not None:
+                xml = storage_html[start:m.end()]
+                results.append((_macro_name(xml), xml))
+                start = None
+        elif m.group(1) == "/":  # self-closing: a complete element on its own
+            if depth == 0:
+                results.append((_macro_name(token), token))
+        else:
+            if depth == 0:
+                start = m.start()
+            depth += 1
     return results
 
 

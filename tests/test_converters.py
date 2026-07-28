@@ -4,6 +4,7 @@ import re
 import html2text
 
 from atlassian_local_cli.converters import (
+    _find_top_level_macros,
     extract_page_property_divs,
     extract_passthrough_footer,
     extract_report_macros,
@@ -1040,3 +1041,63 @@ class TestEmptyTableCells:
         assert "\x01" not in md          # sentinel must never leak into output
         lines, sep_idx = self._table_lines(md)
         assert _cells(lines[sep_idx - 1]) == ["A", "B"]
+
+
+class TestFindTopLevelMacros:
+    """Self-closing `<ac:structured-macro ... />` handling.
+
+    These previously hung forever: the scan looked for a closing tag that does not
+    exist, then restarted from the same offset without making progress. Each test runs
+    under an alarm so a regression fails loudly instead of wedging the suite.
+    """
+
+    @staticmethod
+    def _run(storage_html, seconds=5):
+        import signal
+
+        def _bail(signum, frame):
+            raise AssertionError("_find_top_level_macros did not terminate")
+
+        old = signal.signal(signal.SIGALRM, _bail)
+        signal.alarm(seconds)
+        try:
+            return _find_top_level_macros(storage_html)
+        finally:
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, old)
+
+    def test_self_closing_macro_alone(self):
+        html = '<p>x</p><ac:structured-macro ac:name="children" ac:schema-version="1"/>'
+        assert self._run(html) == [
+            ("children", '<ac:structured-macro ac:name="children" ac:schema-version="1"/>')
+        ]
+
+    def test_self_closing_macro_nested_in_paired_macro(self):
+        inner = '<ac:structured-macro ac:name="children"/>'
+        html = f'<ac:structured-macro ac:name="expand"><ac:rich-text-body>{inner}</ac:rich-text-body></ac:structured-macro>'
+        found = self._run(html)
+        assert [n for n, _ in found] == ["expand"]
+        assert found[0][1] == html
+
+    def test_self_closing_then_paired_macro_are_not_merged(self):
+        selfc = '<ac:structured-macro ac:name="children"/>'
+        paired = '<ac:structured-macro ac:name="info"><ac:rich-text-body><p>hi</p></ac:rich-text-body></ac:structured-macro>'
+        found = self._run(selfc + paired)
+        assert [n for n, _ in found] == ["children", "info"]
+        assert found[0][1] == selfc
+        assert found[1][1] == paired
+
+    def test_multiple_self_closing_macros(self):
+        html = '<ac:structured-macro ac:name="a"/><p>x</p><ac:structured-macro ac:name="b"/>'
+        assert [n for n, _ in self._run(html)] == ["a", "b"]
+
+    def test_paired_and_nested_pairs_still_work(self):
+        inner = '<ac:structured-macro ac:name="code"><ac:plain-text-body>x</ac:plain-text-body></ac:structured-macro>'
+        outer = f'<ac:structured-macro ac:name="expand"><ac:rich-text-body>{inner}</ac:rich-text-body></ac:structured-macro>'
+        found = self._run(outer)
+        assert [n for n, _ in found] == ["expand"]
+        assert found[0][1] == outer
+
+    def test_unclosed_macro_terminates(self):
+        # Malformed input must not wedge the exporter.
+        self._run('<ac:structured-macro ac:name="broken"><ac:rich-text-body><p>x</p>')

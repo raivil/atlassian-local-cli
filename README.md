@@ -65,6 +65,11 @@ atlassian-local-cli wiki-export 12345 -o page.md
 # Update a page from a markdown file
 atlassian-local-cli wiki-update 12345 page.md
 
+# Dump raw HTML / list macros (debug a failing or hanging export)
+atlassian-local-cli wiki-raw 12345
+atlassian-local-cli wiki-raw 12345 --macros
+atlassian-local-cli wiki-raw 12345 --format both -o raw.html
+
 # Create a new page
 atlassian-local-cli wiki-create SPACE "Page Title" content.md
 atlassian-local-cli wiki-create SPACE "Page Title" content.md --parent 12345
@@ -250,6 +255,7 @@ make build                                                  # Build standalone b
 make clean                                                  # Remove build artifacts
 make wiki-export PAGE=12345 OUTPUT=page.md
 make wiki-update PAGE=12345 INPUT=page.md
+make wiki-raw PAGE=12345
 make wiki-create SPACE=DEV TITLE="My Page" INPUT=page.md
 make jira-get ISSUE=PROJ-123
 make jira-my-tasks JSON=1 LIMIT=10

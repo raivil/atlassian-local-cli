@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.4.0 (2026-07-28)
+
+### Fixed
+- `wiki-export` no longer **hangs forever** on pages containing a self-closing macro (`<ac:structured-macro ... />` — e.g. the `children` / page-tree macro used on index pages). `_find_top_level_macros` scanned for a closing tag that such an element never has; on failing to find one it broke out of the inner scan **without advancing the outer cursor**, so the next iteration re-found the same offset and looped indefinitely. It hung both when the self-closing macro was top-level and when it was nested inside a paired macro (an unbalanced depth counter left the outer element unterminated). Rewritten as a single forward pass over open/close/self-closing tokens, which cannot loop by construction and no longer mis-pairs a self-closing macro with a later element's closing tag. Adds 6 regression tests, each guarded by an alarm so a regression fails loudly instead of wedging the suite.
+
+### Added
+- `wiki-raw <page_id>` — dump a page's unconverted HTML, for diagnosing exports that fail, hang or lose content. `--format storage|export|both` (default `storage`), `--macros` to list the page's top-level macros and flag which are self-closing, `-o` to write to a file. Because it skips the converter entirely, it still works on pages the exporter cannot process.
+
 ## v2.3.2 (2026-07-15)
 
 ### Fixed

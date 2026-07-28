@@ -17,6 +17,7 @@ make build                                                  # Build standalone b
 make clean                                                  # Remove build artifacts
 make wiki-export PAGE=<id> [OUTPUT=out.md]                  # Export Confluence page
 make wiki-update PAGE=<id> INPUT=<file.md>                  # Update Confluence page
+make wiki-raw PAGE=<id> [MACROS=1]                          # Dump raw page HTML / list macros (debug exports)
 make wiki-create SPACE=<key> TITLE="title" INPUT=<file.md>  # Create Confluence page
 make jira-get ISSUE=<key>                                   # Display a Jira issue
 make jira-my-tasks [JSON=1] [LIMIT=50]                      # List your assigned tasks

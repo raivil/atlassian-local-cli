@@ -23,6 +23,9 @@ wiki-export: ## Export a wiki page. Usage: make wiki-export PAGE=<page_id> [OUTP
 	@if [ -z "$(PAGE)" ]; then echo "Error: PAGE is required."; exit 1; fi
 	$(CLI) wiki-export $(PAGE) $(if $(OUTPUT),-o $(OUTPUT))
 
+wiki-raw: ## Dump a wiki page's raw HTML. Usage: make wiki-raw PAGE=<page_id> [FORMAT=storage|export|both] [MACROS=1] [OUTPUT=<file>]
+	@uv run atlassian-local-cli wiki-raw $(PAGE) $(if $(FORMAT),--format $(FORMAT),) $(if $(MACROS),--macros,) $(if $(OUTPUT),-o $(OUTPUT),)
+
 wiki-update: ## Update a wiki page. Usage: make wiki-update PAGE=<page_id> INPUT=<file.md>
 	@if [ -z "$(PAGE)" ]; then echo "Error: PAGE is required."; exit 1; fi
 	@if [ -z "$(INPUT)" ]; then echo "Error: INPUT is required."; exit 1; fi
