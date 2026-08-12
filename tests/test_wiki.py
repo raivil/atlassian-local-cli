@@ -127,6 +127,54 @@ class TestWikiExportUnsafeTable:
         assert "Mon May 11" not in after_table
 
 
+class TestWikiExportLongTableCell:
+    """A table cell whose text crosses html2text's default wrap width must not be
+    split across multiple physical lines: the wrapped continuation carries no
+    marker distinguishing it from a real row boundary, so a long cell would
+    otherwise corrupt the table on re-import (the fix: h.body_width = 0)."""
+
+    LONG_CELL = (
+        "This is a deliberately long cell value that runs well past the seventy "
+        "eight character wrap width html2text applies to paragraphs by default, "
+        "which used to force it across several physical lines."
+    )
+    TABLE = (
+        "<table><tbody>"
+        "<tr><th>Col A</th><th>Col B</th></tr>"
+        f"<tr><td>Row1</td><td>{LONG_CELL}</td></tr>"
+        "<tr><td>Row2</td><td>Short</td></tr>"
+        "</tbody></table>"
+    )
+
+    def _page(self):
+        page = {k: v for k, v in MOCK_PAGE.items() if k != "body"}
+        page["body"] = {
+            "export_view": {"value": self.TABLE},
+            "storage": {"value": self.TABLE},
+        }
+        return page
+
+    @patch("atlassian_local_cli.wiki.get_config")
+    @patch("atlassian_local_cli.wiki.create_confluence")
+    def test_long_cell_stays_on_one_line(self, mock_create, mock_config, tmp_path):
+        mock_config.return_value = MagicMock(wiki_url="https://wiki.test.com/")
+        mock_confluence = MagicMock()
+        mock_confluence.get_page_by_id.return_value = self._page()
+        mock_create.return_value = mock_confluence
+
+        outfile = str(tmp_path / "out.md")
+        wiki_export(Namespace(page_id="12345", output=outfile))
+        lines = (tmp_path / "out.md").read_text().splitlines()
+
+        row1_lines = [line for line in lines if "Row1" in line]
+        assert len(row1_lines) == 1
+        assert self.LONG_CELL in row1_lines[0]
+
+        # Row2 must stay a distinct row, not swallowed into Row1's wrapped tail.
+        row2_lines = [line for line in lines if "Row2" in line]
+        assert len(row2_lines) == 1
+
+
 class TestWikiUpdate:
     @patch("atlassian_local_cli.wiki.create_confluence")
     def test_reads_file_and_updates(self, mock_create, tmp_path):

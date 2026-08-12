@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.4.1 (2026-08-12)
+
+### Fixed
+- `wiki-export` no longer word-wraps long table-cell text across multiple physical lines. The page-body `html2text.HTML2Text()` instance in `wiki.py` never set `body_width`, so it kept the library default (78 cols); html2text's own "don't wrap table rows" heuristic looks for a space *before* the pipe, but its generated rows are `cell1| cell2` (no leading space), so it never actually exempted its own table syntax from wrapping. A long cell would spread across several lines, with only the true row end carrying html2text's row-terminating two-space marker — indistinguishable from a `<br>`-induced mid-cell break in one direction, and from a table-final row (which loses that marker at end-of-document) in the other. Set `h.body_width = 0`, matching the precedent already used for Page Properties cells in `converters.py`. Adds a regression test asserting a long cell's full text stays on the row's single line.
+
 ## v2.4.0 (2026-07-28)
 
 ### Fixed

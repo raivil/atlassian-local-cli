@@ -50,6 +50,11 @@ def wiki_export(args):
     h.ignore_links = False
     h.ignore_images = False
     h.ignore_emphasis = False
+    # html2text's own "don't wrap table rows" check looks for a space before the pipe,
+    # but its generated rows are "cell1| cell2" (no leading space) — so long cells get
+    # word-wrapped across lines with no way to tell a wrapped continuation from a real
+    # row boundary on reimport. Disabling wrapping entirely avoids that ambiguity.
+    h.body_width = 0
 
     config = get_config()
     page_url = f"{config.wiki_url.rstrip('/')}/pages/viewpage.action?pageId={page['id']}"
