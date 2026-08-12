@@ -1,5 +1,6 @@
 import argparse
 import sys
+from importlib.metadata import version
 
 from .config import (
     ContextNotFoundError,
@@ -108,6 +109,12 @@ def _context_show(args):
 
 def main():
     parser = argparse.ArgumentParser(description="CLI for Confluence and Jira")
+    parser.add_argument(
+        "--version",
+        "-v",
+        action="version",
+        version=f"atlassian-local-cli {version('atlassian-local-cli')}",
+    )
     parser.add_argument(
         "--context",
         help="Use a named context (overrides the persisted default). Run `context list` to see available contexts.",

@@ -40,10 +40,12 @@ jobs:
         run: uv sync
 
       - name: Build binary
-        run: uv run pyinstaller --onefile --name ${{ matrix.artifact }} main.py
+        run: uv run pyinstaller --onefile --name ${{ matrix.artifact }} --copy-metadata atlassian-local-cli main.py
 
       - name: Verify binary
-        run: ./dist/${{ matrix.artifact }} --help
+        run: |
+          ./dist/${{ matrix.artifact }} --help
+          ./dist/${{ matrix.artifact }} --version
 
       - uses: actions/upload-artifact@v4
         with:

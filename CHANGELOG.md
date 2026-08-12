@@ -1,5 +1,14 @@
 # Changelog
 
+## v2.5.0 (2026-08-12)
+
+### Added
+- `--version` / `-v` — prints the installed version (e.g. `atlassian-local-cli 2.4.1`); previously there was no way to check which build was installed. Reads the version from installed package metadata (`importlib.metadata`) rather than a hardcoded string, so it can't drift from `pyproject.toml`.
+
+### Fixed
+- Removed two stale, gitignored `.egg-info` directories left over at the repo root from a pre-rename build (`wiki_to_md.egg-info`, and an `atlassian_local_cli.egg-info` pinned at `0.3.0`). Because `importlib.metadata` scans `sys.path` — which includes the current directory — running `uv run atlassian-local-cli` from the repo root resolved the wrong, ancient version instead of the one actually installed in the venv. This is also why `--version` is only being added now: there was no reliable metadata to read until this was cleaned up.
+- PyInstaller builds (`make build` and the release CI in `.github/workflows/build.yml`) now pass `--copy-metadata atlassian-local-cli`. Without it, the frozen binary has no package metadata at all, so `importlib.metadata.version(...)` would raise `PackageNotFoundError` — crashing not just `--version` but every command, since the version is resolved once at parser construction. CI's binary smoke-test now also runs `--version` to catch this class of regression.
+
 ## v2.4.1 (2026-08-12)
 
 ### Fixed

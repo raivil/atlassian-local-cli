@@ -8,7 +8,7 @@ setup: ## Install dependencies and create venv
 	uv sync
 
 build: ## Build standalone binary into dist/
-	uv run pyinstaller --onefile --name atlassian-local-cli main.py
+	uv run pyinstaller --onefile --name atlassian-local-cli --copy-metadata atlassian-local-cli main.py
 
 clean: ## Remove build artifacts
 	rm -rf build dist *.spec htmlcov .coverage
