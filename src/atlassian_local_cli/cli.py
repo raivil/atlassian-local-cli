@@ -39,7 +39,7 @@ from .jira_extras import (
     jira_unlink,
     jira_worklog,
 )
-from .wiki import wiki_create, wiki_export, wiki_raw, wiki_update
+from .wiki import wiki_create, wiki_delete, wiki_export, wiki_raw, wiki_update
 
 
 def _context_list(args):
@@ -158,6 +158,12 @@ def main():
     p.add_argument("page_id", help="Confluence page ID")
     p.add_argument("input_file", help="Markdown file to upload")
     p.set_defaults(func=wiki_update)
+
+    p = subparsers.add_parser("wiki-delete", help="Delete a Confluence page (moves to trash)")
+    p.add_argument("page_id", help="Confluence page ID")
+    p.add_argument("--yes", action="store_true", help="Confirm deletion (required)")
+    p.add_argument("--cascade", action="store_true", help="Also delete child pages")
+    p.set_defaults(func=wiki_delete)
 
     p = subparsers.add_parser("wiki-create", help="Create a new Confluence page from a Markdown file")
     p.add_argument("space", help="Space key (e.g. DEV)")

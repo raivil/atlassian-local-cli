@@ -37,6 +37,11 @@ wiki-create: ## Create a wiki page. Usage: make wiki-create SPACE=<key> TITLE="<
 	@if [ -z "$(INPUT)" ]; then echo "Error: INPUT is required."; exit 1; fi
 	$(CLI) wiki-create $(SPACE) "$(TITLE)" $(INPUT) $(if $(PARENT),--parent $(PARENT))
 
+wiki-delete: ## Delete a wiki page. Usage: make wiki-delete PAGE=<page_id> YES=1 [CASCADE=1]
+	@if [ -z "$(PAGE)" ]; then echo "Error: PAGE is required."; exit 1; fi
+	@if [ -z "$(YES)" ]; then echo "Error: YES=1 required to confirm deletion."; exit 1; fi
+	$(CLI) wiki-delete $(PAGE) --yes $(if $(CASCADE),--cascade)
+
 jira-create: ## Create a Jira issue. Usage: make jira-create PROJECT=<key> SUMMARY="<text>" [TYPE=Task] [PRIORITY=High] [ASSIGNEE=user] [DESCRIPTION="<text>"] [DESC_FILE=<file>]
 	@if [ -z "$(PROJECT)" ]; then echo "Error: PROJECT is required."; exit 1; fi
 	@if [ -z "$(SUMMARY)" ]; then echo "Error: SUMMARY is required."; exit 1; fi

@@ -73,6 +73,10 @@ atlassian-local-cli wiki-raw 12345 --format both -o raw.html
 # Create a new page
 atlassian-local-cli wiki-create SPACE "Page Title" content.md
 atlassian-local-cli wiki-create SPACE "Page Title" content.md --parent 12345
+
+# Delete a page (moves to trash; --yes is required)
+atlassian-local-cli wiki-delete 12345 --yes
+atlassian-local-cli wiki-delete 12345 --yes --cascade    # also delete child pages
 ```
 
 ### Jira
@@ -257,6 +261,7 @@ make wiki-export PAGE=12345 OUTPUT=page.md
 make wiki-update PAGE=12345 INPUT=page.md
 make wiki-raw PAGE=12345
 make wiki-create SPACE=DEV TITLE="My Page" INPUT=page.md
+make wiki-delete PAGE=12345 YES=1
 make jira-get ISSUE=PROJ-123
 make jira-my-tasks JSON=1 LIMIT=10
 make jira-transition ISSUE=PROJ-123 STATUS="In Progress"

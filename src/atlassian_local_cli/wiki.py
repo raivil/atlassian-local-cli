@@ -1,4 +1,5 @@
 import os
+import sys
 
 import html2text
 
@@ -139,6 +140,16 @@ def wiki_update(args):
     _upload_attachments(confluence, args.page_id, images)
     confluence.update_page(args.page_id, title, html_content, representation="storage")
     print(f"Updated page {args.page_id}: {title}")
+
+
+def wiki_delete(args):
+    confluence = create_confluence()
+    if not args.yes:
+        print(f"Refusing to delete page {args.page_id} without --yes.", file=sys.stderr)
+        sys.exit(1)
+    page = confluence.get_page_by_id(args.page_id)
+    confluence.remove_page(args.page_id, recursive=args.cascade)
+    print(f"Deleted page {args.page_id}: {page['title']}")
 
 
 def wiki_create(args):

@@ -1,8 +1,10 @@
 from argparse import Namespace
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from atlassian_local_cli.converters import md_to_confluence_html
-from atlassian_local_cli.wiki import wiki_create, wiki_export, wiki_update
+from atlassian_local_cli.wiki import wiki_create, wiki_delete, wiki_export, wiki_update
 
 MOCK_PAGE = {
     "id": "12345",
@@ -224,6 +226,24 @@ class TestWikiUpdate:
         update_body = mock_confluence.update_page.call_args[0][2]
         assert 'ri:filename="pic.png"' in update_body
         assert "<img" not in update_body
+
+
+class TestWikiDelete:
+    @patch("atlassian_local_cli.wiki.create_confluence")
+    def test_requires_yes(self, mock_create):
+        mock_create.return_value = MagicMock()
+        with pytest.raises(SystemExit):
+            wiki_delete(Namespace(page_id="12345", yes=False, cascade=False))
+
+    @patch("atlassian_local_cli.wiki.create_confluence")
+    def test_deletes_with_yes(self, mock_create, capsys):
+        mock_confluence = MagicMock()
+        mock_confluence.get_page_by_id.return_value = {"title": "Old Page"}
+        mock_create.return_value = mock_confluence
+
+        wiki_delete(Namespace(page_id="12345", yes=True, cascade=True))
+        mock_confluence.remove_page.assert_called_once_with("12345", recursive=True)
+        assert "Deleted page 12345: Old Page" in capsys.readouterr().out
 
 
 class TestWikiCreate:

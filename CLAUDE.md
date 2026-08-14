@@ -19,6 +19,7 @@ make wiki-export PAGE=<id> [OUTPUT=out.md]                  # Export Confluence 
 make wiki-update PAGE=<id> INPUT=<file.md>                  # Update Confluence page
 make wiki-raw PAGE=<id> [MACROS=1]                          # Dump raw page HTML / list macros (debug exports)
 make wiki-create SPACE=<key> TITLE="title" INPUT=<file.md>  # Create Confluence page
+make wiki-delete PAGE=<id> YES=1 [CASCADE=1]                # Delete Confluence page (moves to trash)
 make jira-get ISSUE=<key>                                   # Display a Jira issue
 make jira-my-tasks [JSON=1] [LIMIT=50]                      # List your assigned tasks
 make jira-transition ISSUE=<key> [STATUS="<status>"] [RESOLUTION="Won't Do"]  # Transition issue (omit STATUS to list options)

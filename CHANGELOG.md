@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.7.0 (2026-08-14)
+
+### Added
+- `wiki-delete <page_id> --yes [--cascade]` — delete a Confluence page (moves it to trash; `--cascade` also deletes child pages). Previously there was no way to remove a page short of dropping to the underlying `atlassian-python-api` library directly — only `jira-delete` existed for Jira issues. Mirrors `jira-delete`'s `--yes`-required confirmation pattern. `make wiki-delete PAGE=<id> YES=1` target added alongside it.
+
 ## v2.6.0 (2026-08-14)
 
 ### Fixed
