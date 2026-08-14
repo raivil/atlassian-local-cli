@@ -790,6 +790,76 @@ def extract_page_properties(md_text):
     return md_text, blocks
 
 
+_VOID_ELEMENTS = {
+    "area", "base", "br", "col", "embed", "hr", "img", "input",
+    "link", "meta", "param", "source", "track", "wbr",
+}
+
+_TAG_TOKEN_RE = re.compile(
+    r'<!--.*?-->'
+    r'|<!\[CDATA\[.*?\]\]>'
+    r'|<(?P<close>/)?(?P<name>[a-zA-Z][\w:.-]*)\b[^<>]*?(?P<selfclose>/)?>',
+    re.DOTALL,
+)
+
+
+def _escape_unmatched_tags(html):
+    """Escape `<...>` tokens with no matching open/close partner anywhere in the
+    document — e.g. a literal `<table>` used as a placeholder in prose. Left alone,
+    Python-Markdown's raw-HTML passthrough treats it as a real, unclosed tag, and
+    everything after it is parsed as if nested inside that element — corrupting the
+    rest of the generated document (surfaces as an XML parse error on upload:
+    "Unexpected close tag ...; expected </table>").
+
+    Runs on HTML already produced by md_lib.markdown() (including the nested calls
+    used to render panel/expand/page-property bodies), not the raw markdown source:
+    by this point real code (fenced/inline/indented) has already had its contents
+    HTML-escaped by the markdown parser itself, so there is no need to re-derive
+    "is this inside code" here — genuine code content has no literal unescaped
+    `<`/`>` left to match against, and a real autolink like `<https://x>` has
+    already become a proper `<a href="...">` pair.
+
+    Matching is a simple per-tag-name stack, not a full parser — cheap, and enough
+    to catch genuinely orphaned tokens without special-casing every tag this module
+    happens to emit elsewhere (ac:*, ri:*, iframe, br, ...), since a well-formed
+    pair is never flagged regardless of its name. Known limitation: two
+    independently-mismatched tags of different names that happen to interleave
+    (`<table>...<div>...</table>...</div>`) won't be caught — real breakage there
+    surfaces downstream instead.
+    """
+    tokens = []
+    for m in _TAG_TOKEN_RE.finditer(html):
+        name = m.group("name")
+        if name is None:  # comment / CDATA — always self-contained
+            continue
+        name = name.lower()
+        if name in _VOID_ELEMENTS or m.group("selfclose"):
+            continue
+        tokens.append((m.start(), m.end(), name, m.group("close") is not None))
+
+    stacks = defaultdict(list)
+    unmatched = set()
+    for idx, (_start, _end, name, is_close) in enumerate(tokens):
+        if is_close:
+            if stacks[name]:
+                stacks[name].pop()
+            else:
+                unmatched.add(idx)  # stray closing tag
+        else:
+            stacks[name].append(idx)
+    for stack in stacks.values():
+        unmatched.update(stack)  # opens left on the stack are unmatched
+
+    if not unmatched:
+        return html
+
+    out = html
+    for idx in sorted(unmatched, reverse=True):  # right to left: offsets stay valid
+        start, end, _name, _is_close = tokens[idx]
+        out = out[:start] + "&lt;" + html[start + 1:end - 1] + "&gt;" + out[end:]
+    return out
+
+
 def md_to_confluence_html(md_text):
     """Convert markdown to Confluence storage format HTML."""
     # Extract passthrough blocks first
@@ -886,7 +956,10 @@ def md_to_confluence_html(md_text):
     # with a `@decorator` is code, not a mention. The combined pattern matches
     # code regions first and returns them unchanged, so the mention branch only
     # fires in prose. The `(?![\w/])` lookahead also skips scoped-package refs
-    # (`@scope/pkg`) that appear outside code.
+    # (`@scope/pkg`) that appear outside code. The `@` added to the lookbehind
+    # class skips the second `@` of a `@@TEMPLATE_TOKEN@@` placeholder (e.g.
+    # `@@DEST_DATASET@@` in dbt SQL examples) — without it, that second `@` reads
+    # as a bare mention and gets rewritten into a link for a nonexistent user.
     def _convert_mention(m):
         if m.group("user"):
             return f'<ac:link><ri:user ri:username="{m.group("user")}" /></ac:link>'
@@ -895,7 +968,7 @@ def md_to_confluence_html(md_text):
     md_text = re.sub(
         r'(?P<fence>```.*?```|~~~.*?~~~)'        # fenced code blocks
         r'|(?P<inline>`+[^`]*`+)'                # inline code spans
-        r'|(?<!["\w])@(?P<user>\w+)(?![\w/])',   # user mention (not in code, not scoped pkg)
+        r'|(?<!["\w@])@(?P<user>\w+)(?![\w/])',  # user mention (not in code, not scoped pkg)
         _convert_mention,
         md_text,
         flags=re.DOTALL,
@@ -1035,6 +1108,12 @@ def md_to_confluence_html(md_text):
         macro = _build_details_macro(macro_id, rows)
         html = html.replace(f"<p>{key}</p>", macro)
         html = html.replace(key, macro)
+
+    # Escape any tag-like token still unmatched now that panel/expand/page-property
+    # bodies (each parsed by their own nested md_lib.markdown() call above) are
+    # spliced in. Must run before passthrough restoration: passthrough XML is
+    # verbatim, already-valid storage markup and must never be touched by this.
+    html = _escape_unmatched_tags(html)
 
     # Restore passthrough blocks
     html = restore_passthrough_blocks(html, passthrough_mapping)

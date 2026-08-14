@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.6.0 (2026-08-14)
+
+### Fixed
+- `wiki-update` no longer corrupts (or outright fails to upload) a page containing a tag-like placeholder in prose, e.g. literal text `<table>` used as an example ("add `<table>` to BigQuery") outside a code span. Python-Markdown's raw-HTML passthrough treated it as a genuine unclosed tag, so everything parsed after it was nested inside that element — Confluence then rejected the upload with `Error parsing xhtml: Unexpected close tag ...; expected </table>`, and even a byte-for-byte unmodified re-upload of an affected page failed the same way. Added `_escape_unmatched_tags()`: a lightweight per-tag-name stack match over the HTML already produced by `md_lib.markdown()` (including the nested calls that render panel/expand/page-property bodies), escaping only tokens with no matching open/close partner anywhere in the document. Runs after markdown parsing rather than on the raw source, so real code (fenced/inline/indented) — already HTML-escaped by the parser itself — and genuine autolinks need no special-casing, and well-formed raw HTML this module relies on elsewhere (`<iframe>`, `<br>`, `ac:*`/`ri:*` macro XML) is left untouched regardless of tag name, since a matched pair is never flagged. 5 regression tests.
+- `@@TOKEN@@`-style double-`@` template placeholders (e.g. dbt's `@@DEST_DATASET@@`, meant to be swapped per-environment and left otherwise untouched) were silently rewritten into a Confluence user-link for a nonexistent user. The `@mention` regex's negative lookbehind excluded a preceding quote or word character but not `@` itself, so the second `@` of the pair read as a bare mention (`@DEST_DATASET`). This one doesn't fail loudly — it was only caught by inspecting a real page after fixing the bug above, since every prior upload of that page had crashed before reaching this code path. Added `@` to the lookbehind exclusion. 1 regression test.
+
 ## v2.5.0 (2026-08-12)
 
 ### Added

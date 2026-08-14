@@ -318,6 +318,14 @@ class TestMdToConfluenceHtml:
         result = md_to_confluence_html("Install @modelcontextprotocol/sdk now.")
         assert "ri:username" not in result
 
+    def test_user_mention_not_in_double_at_template_token(self):
+        """A `@@TOKEN@@` template placeholder (e.g. dbt's @@DEST_DATASET@@) must
+        survive verbatim, not be rewritten as a mention for a nonexistent user."""
+        result = md_to_confluence_html("SELECT * FROM @@DEST_DATASET@@.activity_logs")
+        assert "ri:username" not in result
+        assert "ac:link" not in result
+        assert "@@DEST_DATASET@@" in result
+
     def test_fenced_code_with_language(self):
         md = "```python\nprint('hi')\n```"
         result = md_to_confluence_html(md)
@@ -374,6 +382,41 @@ class TestMdToConfluenceHtml:
         result = md_to_confluence_html(md)
         assert "<table>" in result
         assert "<td>1</td>" in result
+
+    def test_stray_placeholder_tag_in_prose_is_escaped(self):
+        """A literal `<table>` used as an example placeholder (not real HTML) must
+        not pass through as an actual unclosed tag — that corrupts everything
+        parsed after it and fails Confluence's storage-format validation on upload."""
+        md = 'Ask it to "add <table> to BigQuery".'
+        result = md_to_confluence_html(md)
+        assert "&lt;table&gt;" in result
+        assert "<table>" not in result
+
+    def test_stray_placeholder_tag_inside_panel_body_is_escaped(self):
+        """Same bug, but inside a panel body, rendered via panel restoration's own
+        nested md_lib.markdown() call — the fix must run after that splices in."""
+        md = '> {panel:tip}\n> Ask it to "add <table> to BigQuery".'
+        result = md_to_confluence_html(md)
+        assert 'ac:name="tip"' in result
+        assert "&lt;table&gt;" in result
+        assert "<table>" not in result
+
+    def test_backtick_wrapped_placeholder_not_double_escaped(self):
+        md = "See `config/anonymized_view/<table>.sql`."
+        result = md_to_confluence_html(md)
+        assert "&lt;table&gt;" in result
+        assert "&amp;lt;" not in result
+
+    def test_well_formed_paired_tag_not_escaped(self):
+        """A genuinely balanced raw HTML pair must survive untouched."""
+        md = "Wrap it like <div class='x'>content</div>."
+        result = md_to_confluence_html(md)
+        assert "<div class='x'>content</div>" in result
+
+    def test_void_element_without_self_close_not_flagged(self):
+        md = "Line one<br>Line two"
+        result = md_to_confluence_html(md)
+        assert "&lt;br&gt;" not in result
 
     def test_combined(self):
         md = "@alice {status:OK|green}\n\n```bash\necho hi\n```"
