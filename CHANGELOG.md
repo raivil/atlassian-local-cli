@@ -1,5 +1,16 @@
 # Changelog
 
+## v2.8.0 (2026-09-01)
+
+### Added
+- `context add <name>` — create a context without hand-writing `contexts/<name>.env`. Previously `context list|current|use|unset|show` could all read contexts but nothing could create one, so adding a second account meant knowing the file layout and the exact env-var names. Prompts for any value not passed as a flag, reading tokens through `getpass` so they never reach shell history or `ps`; prompting is TTY-gated, so scripted use (`--jira-url ... --jira-token ...`) works and omitted values fall back to defaults instead of blocking. Writes `0600` files into a `0700` `contexts/` dir, refuses to clobber an existing context without `--force`, and validates the name against `^[A-Za-z0-9][A-Za-z0-9._-]*$` so it can't escape `CONTEXTS_DIR` via `../`. Does not switch the active context — it prints the `context use` next step instead. `make context-add NAME=<name>` target added.
+- Atlassian **Cloud** support for Jira. `create_jira()` previously always sent `Authorization: Bearer <token>`, which Cloud rejects with a 401 — Cloud wants the account email plus an API token over basic auth. Auth mode is now chosen by URL: hosts under `*.atlassian.net` use basic auth with the new `JIRA_USERNAME` key, everything else keeps the Bearer/PAT path for Server/Data Center. `JIRA_AUTH=basic|bearer` overrides the detection, for Cloud on a custom domain. A Cloud context that omits `JIRA_USERNAME` now fails with a message naming the missing key instead of a bare `HTTPError` traceback.
+  - Detection is keyed on the URL rather than on `JIRA_USERNAME` being present: `JIRA_USERNAME` was read by nothing before this release, so existing Server/DC context files carry stray username lines. Switching on the username flipped those working PAT configs to basic auth and 401'd them — caught in testing against a real Server instance.
+- `jira-me` prints `displayName <emailAddress>` when the instance provides them. Cloud's `myself()` returns no `name` field, so the old `name → accountId → key` fallback printed an opaque account UUID.
+
+### Fixed
+- `context add` warns when a key it just wrote is also exported in the shell. Shell env wins over file values in `load_config()`, so a `JIRA_TOKEN` in your profile silently defeats every context you create — it surfaced only as a confusing auth failure much later.
+
 ## v2.7.0 (2026-08-14)
 
 ### Added

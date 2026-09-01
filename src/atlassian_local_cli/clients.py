@@ -1,4 +1,5 @@
 import sys
+from urllib.parse import urlparse
 
 import requests
 from atlassian import Confluence, Jira
@@ -19,12 +20,45 @@ def create_confluence(config=None):
     return Confluence(url=config.wiki_url, session=session)
 
 
+CLOUD_HOST_SUFFIX = ".atlassian.net"
+
+
+def _jira_uses_basic_auth(config) -> bool:
+    """Cloud wants email + API token over basic; Server/DC wants a Bearer PAT.
+
+    Keyed off the URL, not the presence of JIRA_USERNAME — plenty of Server
+    configs carry a stray username that must not flip them to basic auth.
+    """
+    if config.jira_auth:
+        choice = config.jira_auth.strip().lower()
+        if choice not in ("basic", "bearer"):
+            print(
+                f"Error: JIRA_AUTH must be 'basic' or 'bearer', got {config.jira_auth!r}.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        return choice == "basic"
+    host = urlparse(config.jira_url).hostname or ""
+    return host.endswith(CLOUD_HOST_SUFFIX)
+
+
 def create_jira(config=None):
     config = config or get_config()
     if not config.jira_url or not config.jira_token:
         path = context_env_path(config.context)
         print(f"Error: JIRA_URL and JIRA_TOKEN must be set for context '{config.context}'. Add them to {path} or export them.", file=sys.stderr)
         sys.exit(1)
-    session = requests.Session()
-    session.headers["Authorization"] = f"Bearer {config.jira_token}"
-    return Jira(url=config.jira_url, session=session)
+    if not _jira_uses_basic_auth(config):
+        session = requests.Session()
+        session.headers["Authorization"] = f"Bearer {config.jira_token}"
+        return Jira(url=config.jira_url, session=session)
+
+    if not config.jira_username:
+        path = context_env_path(config.context)
+        print(
+            f"Error: {config.jira_url} looks like Atlassian Cloud, which needs basic auth. "
+            f"Set JIRA_USERNAME (your account email) in {path}, or set JIRA_AUTH=bearer to force a PAT.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    return Jira(url=config.jira_url, username=config.jira_username, password=config.jira_token)

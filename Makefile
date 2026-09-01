@@ -144,6 +144,10 @@ context-list: ## List configured contexts. Active is marked with *.
 context-current: ## Print the currently active context name.
 	$(CLI) context current
 
+context-add: ## Create a new context (prompts for anything not passed). Usage: make context-add NAME=<name>
+	@if [ -z "$(NAME)" ]; then echo "Error: NAME is required."; exit 1; fi
+	$(CLI) context add $(NAME)
+
 context-use: ## Set persistent default context. Usage: make context-use NAME=<name>
 	@if [ -z "$(NAME)" ]; then echo "Error: NAME is required."; exit 1; fi
 	$(CLI) context use $(NAME)

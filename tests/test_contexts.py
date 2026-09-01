@@ -1,15 +1,21 @@
 """Tests for the multi-context (multi-account) configuration system."""
 
+import sys
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from dotenv import dotenv_values
 
+from atlassian_local_cli import cli as cli_module
 from atlassian_local_cli import config as config_module
 from atlassian_local_cli.cli import main
 from atlassian_local_cli.config import (
     DEFAULT_CONTEXT_NAME,
+    DEFAULT_WIKI_URL,
+    ContextExistsError,
     ContextNotFoundError,
+    InvalidContextNameError,
     context_env_path,
     context_exists,
     get_config,
@@ -19,6 +25,8 @@ from atlassian_local_cli.config import (
     resolve_context_name,
     set_active_context,
     set_current_context,
+    validate_context_name,
+    write_context_env,
 )
 
 
@@ -197,9 +205,224 @@ class TestCliDispatch:
         assert "supersecret-token-abc" not in out
         assert "https://work.jira/" in out
 
+    def test_context_show_includes_jira_username(self, config_root, capsys):
+        write_env(
+            config_root / "contexts" / "cloud.env",
+            JIRA_URL="https://acme.atlassian.net",
+            JIRA_USERNAME="me@example.com",
+            JIRA_TOKEN="t",
+        )
+        sys.argv = ["atlassian-local-cli", "context", "show", "cloud"]
+        main()
+        assert "JIRA_USERNAME=me@example.com" in capsys.readouterr().out
+
     def test_context_unset_clears_persisted(self, config_root, capsys):
         write_env(config_root / "contexts" / "work.env", JIRA_TOKEN="w")
         set_current_context("work")
         with patch("sys.argv", ["atlassian-local-cli", "context", "unset"]):
             main()
         assert get_current_context() is None
+
+
+class TestValidateContextName:
+    @pytest.mark.parametrize("name", ["work", "personal", "acme-corp", "a.b_c", "v2"])
+    def test_accepts_safe_names(self, name):
+        assert validate_context_name(name) == name
+
+    @pytest.mark.parametrize(
+        "name", ["", "   ", "../evil", "a/b", "a\\b", ".hidden", "has space", "sh*t", "a\nb"]
+    )
+    def test_rejects_unsafe_names(self, name):
+        with pytest.raises(InvalidContextNameError):
+            validate_context_name(name)
+
+    def test_strips_surrounding_whitespace(self):
+        assert validate_context_name("  work  ") == "work"
+
+
+class TestWriteContextEnv:
+    def test_named_context_lands_in_contexts_dir(self, config_root):
+        path = write_context_env("work", {"JIRA_TOKEN": "abc"})
+        assert path == config_root / "contexts" / "work.env"
+        assert path.exists()
+
+    def test_default_context_writes_dot_env(self, config_root):
+        path = write_context_env(DEFAULT_CONTEXT_NAME, {"JIRA_TOKEN": "abc"})
+        assert path == config_root / ".env"
+
+    def test_written_file_is_owner_read_write_only(self, config_root):
+        path = write_context_env("work", {"JIRA_TOKEN": "abc"})
+        assert path.stat().st_mode & 0o777 == 0o600
+
+    def test_contexts_dir_is_owner_only(self, config_root):
+        write_context_env("work", {"JIRA_TOKEN": "abc"})
+        assert (config_root / "contexts").stat().st_mode & 0o777 == 0o700
+
+    def test_values_round_trip_through_dotenv(self, config_root):
+        values = {
+            "JIRA_URL": "https://jira.example.com/",
+            "JIRA_TOKEN": 'tok"with#quote and space',
+            "WIKI_TOKEN": "back\\slash",
+        }
+        path = write_context_env("work", values)
+        assert dotenv_values(path) == values
+
+    def test_blank_values_are_omitted(self, config_root):
+        path = write_context_env("work", {"JIRA_TOKEN": "abc", "WIKI_TOKEN": "", "WIKI_URL": None})
+        assert dotenv_values(path) == {"JIRA_TOKEN": "abc"}
+
+    def test_newline_in_value_rejected(self, config_root):
+        with pytest.raises(ValueError):
+            write_context_env("work", {"JIRA_TOKEN": "a\nb"})
+
+    def test_refuses_to_clobber_existing_context(self, config_root):
+        write_context_env("work", {"JIRA_TOKEN": "first"})
+        with pytest.raises(ContextExistsError):
+            write_context_env("work", {"JIRA_TOKEN": "second"})
+        assert dotenv_values(config_root / "contexts" / "work.env") == {"JIRA_TOKEN": "first"}
+
+    def test_force_overwrites(self, config_root):
+        write_context_env("work", {"JIRA_TOKEN": "first"})
+        write_context_env("work", {"JIRA_TOKEN": "second"}, force=True)
+        assert dotenv_values(config_root / "contexts" / "work.env") == {"JIRA_TOKEN": "second"}
+
+    def test_new_context_is_listed_and_loadable(self, config_root):
+        write_context_env("work", {"JIRA_URL": "https://j.example.com", "JIRA_TOKEN": "abc"})
+        assert "work" in list_contexts()
+        assert load_config(context="work").jira_token == "abc"
+
+    def test_rejects_unsafe_name(self, config_root):
+        with pytest.raises(InvalidContextNameError):
+            write_context_env("../escape", {"JIRA_TOKEN": "abc"})
+        assert not (config_root.parent / "escape.env").exists()
+
+
+class TestContextAddCli:
+    def _run(self, *argv):
+        sys.argv = ["atlassian-local-cli", "context", "add", *argv]
+        main()
+
+    def test_flags_only_writes_file(self, config_root, capsys):
+        self._run(
+            "work",
+            "--jira-url", "https://jira.example.com",
+            "--jira-username", "me@example.com",
+            "--jira-token", "jtok",
+            "--wiki-url", "https://wiki.example.com/",
+            "--wiki-username", "me",
+            "--wiki-token", "wtok",
+        )
+        assert dotenv_values(config_root / "contexts" / "work.env") == {
+            "WIKI_URL": "https://wiki.example.com/",
+            "WIKI_USERNAME": "me",
+            "WIKI_TOKEN": "wtok",
+            "JIRA_URL": "https://jira.example.com",
+            "JIRA_USERNAME": "me@example.com",
+            "JIRA_TOKEN": "jtok",
+        }
+        assert "work" in capsys.readouterr().out
+
+    def test_prompts_for_missing_values(self, config_root, monkeypatch, capsys):
+        answers = iter(
+            ["https://wiki.example.com/", "me", "https://jira.example.com", "me@example.com"]
+        )
+        secrets = iter(["wtok", "jtok"])
+        monkeypatch.setattr("builtins.input", lambda *a: next(answers))
+        monkeypatch.setattr(cli_module.getpass, "getpass", lambda *a: next(secrets))
+        monkeypatch.setattr(cli_module.sys.stdin, "isatty", lambda: True)
+        self._run("work")
+        assert dotenv_values(config_root / "contexts" / "work.env") == {
+            "WIKI_URL": "https://wiki.example.com/",
+            "WIKI_USERNAME": "me",
+            "WIKI_TOKEN": "wtok",
+            "JIRA_URL": "https://jira.example.com",
+            "JIRA_USERNAME": "me@example.com",
+            "JIRA_TOKEN": "jtok",
+        }
+
+    def test_blank_prompt_answer_uses_wiki_url_default(self, config_root, monkeypatch):
+        monkeypatch.setattr("builtins.input", lambda *a: "")
+        monkeypatch.setattr(cli_module.getpass, "getpass", lambda *a: "tok")
+        monkeypatch.setattr(cli_module.sys.stdin, "isatty", lambda: True)
+        self._run("work")
+        assert dotenv_values(config_root / "contexts" / "work.env")["WIKI_URL"] == DEFAULT_WIKI_URL
+
+    def test_non_tty_never_blocks_on_a_prompt(self, config_root, monkeypatch):
+        """CI has no one to answer prompts; omitted values take their defaults."""
+        monkeypatch.setattr(cli_module.sys.stdin, "isatty", lambda: False)
+        monkeypatch.setattr("builtins.input", lambda *a: pytest.fail("prompted in non-tty"))
+        self._run("work", "--jira-token", "jtok")
+        assert dotenv_values(config_root / "contexts" / "work.env") == {
+            "WIKI_URL": DEFAULT_WIKI_URL,
+            "JIRA_TOKEN": "jtok",
+        }
+
+    def test_non_tty_with_nothing_supplied_exits(self, config_root, monkeypatch, capsys):
+        monkeypatch.setattr(cli_module.sys.stdin, "isatty", lambda: False)
+        with pytest.raises(SystemExit) as exc:
+            self._run("work")
+        assert exc.value.code == 1
+        assert "token" in capsys.readouterr().err.lower()
+        assert not (config_root / "contexts" / "work.env").exists()
+
+    def test_exits_when_no_token_supplied(self, config_root, capsys):
+        with pytest.raises(SystemExit) as exc:
+            self._run("work", "--jira-url", "https://jira.example.com", "--jira-token", "")
+        assert exc.value.code == 1
+        assert "token" in capsys.readouterr().err.lower()
+        assert not (config_root / "contexts" / "work.env").exists()
+
+    def test_existing_context_exits_with_hint(self, config_root, capsys):
+        write_context_env("work", {"JIRA_TOKEN": "first"})
+        with pytest.raises(SystemExit) as exc:
+            self._run("work", "--jira-token", "second")
+        assert exc.value.code == 1
+        assert "--force" in capsys.readouterr().err
+
+    def test_force_flag_overwrites(self, config_root):
+        write_context_env("work", {"JIRA_TOKEN": "first"})
+        self._run("work", "--jira-token", "second", "--force")
+        assert dotenv_values(config_root / "contexts" / "work.env")["JIRA_TOKEN"] == "second"
+
+    def test_invalid_name_exits(self, config_root, capsys):
+        with pytest.raises(SystemExit) as exc:
+            self._run("../evil", "--jira-token", "x")
+        assert exc.value.code == 1
+        assert "name" in capsys.readouterr().err.lower()
+
+    def test_warns_when_shell_env_shadows_written_keys(self, config_root, monkeypatch, capsys):
+        monkeypatch.setenv("JIRA_TOKEN", "shadow")
+        self._run("work", "--jira-token", "jtok")
+        err = capsys.readouterr().err
+        assert "JIRA_TOKEN" in err
+        assert "shell" in err.lower()
+
+    def test_does_not_switch_active_context(self, config_root, capsys):
+        self._run("work", "--jira-token", "jtok")
+        assert get_current_context() is None
+        assert "context use work" in capsys.readouterr().out
+
+    @pytest.mark.parametrize("interrupt", [EOFError, KeyboardInterrupt])
+    def test_cancelling_a_prompt_exits_cleanly(self, config_root, monkeypatch, capsys, interrupt):
+        """Ctrl-D / Ctrl-C at a prompt should not dump a traceback."""
+        def boom(*a):
+            raise interrupt()
+        monkeypatch.setattr("builtins.input", boom)
+        monkeypatch.setattr(cli_module.sys.stdin, "isatty", lambda: True)
+        with pytest.raises(SystemExit) as exc:
+            self._run("work")
+        assert exc.value.code == 1
+        assert "cancelled" in capsys.readouterr().err.lower()
+        assert not (config_root / "contexts" / "work.env").exists()
+
+    def test_jira_username_enables_cloud_basic_auth(self, config_root):
+        """Cloud accounts need email+token basic auth, so the email must be storable."""
+        self._run("cloud", "--jira-url", "https://acme.atlassian.net", "--jira-username",
+                  "me@example.com", "--jira-token", "t")
+        assert load_config(context="cloud").jira_username == "me@example.com"
+
+    def test_epic_fields_are_flag_only(self, config_root):
+        self._run("work", "--jira-token", "t", "--jira-epic-link-field", "customfield_10014")
+        written = dotenv_values(config_root / "contexts" / "work.env")
+        assert written["JIRA_EPIC_LINK_FIELD"] == "customfield_10014"
+        assert "JIRA_EPIC_NAME_FIELD" not in written

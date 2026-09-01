@@ -79,6 +79,22 @@ class TestJiraMe:
         assert "jdoe" in capsys.readouterr().out
 
     @patch("atlassian_local_cli.jira_extras.create_jira")
+    def test_prints_display_name_on_cloud(self, mock_create, capsys):
+        """Cloud responses have no 'name'; an opaque accountId is not a useful answer."""
+        mock_jira = MagicMock()
+        mock_jira.myself.return_value = {
+            "accountId": "557058:85120963-06da",
+            "displayName": "John Doe",
+            "emailAddress": "jdoe@example.com",
+        }
+        mock_create.return_value = mock_jira
+
+        jira_me(Namespace(json=False))
+        out = capsys.readouterr().out
+        assert "John Doe" in out
+        assert "jdoe@example.com" in out
+
+    @patch("atlassian_local_cli.jira_extras.create_jira")
     def test_json(self, mock_create, capsys):
         mock_jira = MagicMock()
         mock_jira.myself.return_value = {"name": "jdoe"}

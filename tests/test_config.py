@@ -42,3 +42,15 @@ class TestConfig:
         monkeypatch.setenv("WIKI_TOKEN", "token2")
         config2 = get_config()
         assert config1 is not config2
+
+
+class TestJiraUsername:
+    def test_reads_jira_username_from_env_file(self, tmp_path):
+        env = tmp_path / ".env"
+        env.write_text("JIRA_URL=https://acme.atlassian.net\nJIRA_USERNAME=me@example.com\nJIRA_TOKEN=t\n")
+        assert load_config(env_file=env).jira_username == "me@example.com"
+
+    def test_defaults_to_none(self, tmp_path):
+        env = tmp_path / ".env"
+        env.write_text("JIRA_TOKEN=t\n")
+        assert load_config(env_file=env).jira_username is None

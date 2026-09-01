@@ -51,7 +51,37 @@ JIRA_TOKEN=your-jira-personal-access-token
 
 **Auth modes:**
 - **Confluence**: basic auth (username + token) when `WIKI_USERNAME` is set, Bearer token otherwise
-- **Jira**: always uses Bearer token (Personal Access Tokens)
+- **Jira**: chosen by URL. Hosts under `*.atlassian.net` (Atlassian **Cloud**) use basic auth and require `JIRA_USERNAME` — your account email — alongside an [API token](https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-atlassian-account/). Everything else (**Server/Data Center**) uses a Bearer Personal Access Token. Set `JIRA_AUTH=basic` or `JIRA_AUTH=bearer` to override, which you need only for Cloud on a custom domain.
+
+### Multiple accounts (contexts)
+
+Accounts are managed kubectl-style. The `.env` above is the `default` context; extra
+accounts live in `~/.config/atlassian-local-cli/contexts/<name>.env`.
+
+```bash
+# Create one — prompts for anything you don't pass; tokens are read without echo
+atlassian-local-cli context add work
+
+# Or non-interactively (note: tokens passed this way land in your shell history)
+atlassian-local-cli context add work \
+    --jira-url https://acme.atlassian.net --jira-username me@acme.com --jira-token "$TOKEN"
+
+atlassian-local-cli context list             # available contexts, active marked with *
+atlassian-local-cli context show work        # resolved config, tokens masked
+atlassian-local-cli context use work         # set the persistent default
+atlassian-local-cli context unset            # revert to 'default'
+```
+
+Use one for a single command by putting `--context` **before** the subcommand:
+
+```bash
+atlassian-local-cli --context work jira-me
+```
+
+Resolution order: `--context` flag, then `context use`, then `default`. Shell
+environment variables still win over file values, so an exported `JIRA_TOKEN` in
+your shell profile will override every context — `context add` warns you when it
+detects this.
 
 ## Usage
 
@@ -278,6 +308,9 @@ make jira-delete ISSUE=PROJ-123 YES=1
 make jira-epics PROJECT=PROJ
 make jira-epic-issues EPIC=PROJ-100
 make jira-me
+make context-add NAME=work
+make context-list
+make context-use NAME=work
 make jira-open ISSUE=PROJ-123
 ```
 

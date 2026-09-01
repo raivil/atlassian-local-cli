@@ -40,6 +40,7 @@ make jira-clone ISSUE=<key> [REPLACE="old:new"]             # Clone an issue
 make jira-delete ISSUE=<key> YES=1 [CASCADE=1]              # Delete an issue
 make jira-epics [PROJECT=PROJ]                              # List epics
 make jira-epic-issues EPIC=<key>                            # List children of an epic
+make context-add NAME=<name>                                # Create a new context (prompts for values)
 make context-list                                           # List configured contexts (active marked with *)
 make context-current                                        # Print active context name
 make context-use NAME=<name>                                # Set persistent default context
@@ -56,7 +57,9 @@ Env vars loaded from `~/.config/atlassian-local-cli/.env` (the "default" context
 
 - `WIKI_URL` — defaults to `https://wiki.example.com/`
 - `WIKI_USERNAME` / `WIKI_TOKEN` — Confluence auth (basic auth when username set, Bearer otherwise)
-- `JIRA_URL` / `JIRA_TOKEN` — Jira auth (always Bearer token via PAT)
+- `JIRA_URL` / `JIRA_TOKEN` — Jira auth
+- `JIRA_USERNAME` — account email, required for Atlassian Cloud (basic auth). Ignored on Server/DC.
+- `JIRA_AUTH` — `basic` or `bearer`, forcing the auth mode. Only needed for Cloud on a custom domain (which URL detection can't spot) or to opt a `*.atlassian.net` host out of basic auth.
 
 ### Contexts (multi-account)
 
@@ -78,14 +81,16 @@ Resolution order (highest priority first):
 
 Shell env vars (e.g. `JIRA_TOKEN=...`) still win over file values, matching prior behavior.
 
+Create a context with `atlassian-local-cli context add <name>`: it prompts for any value not passed as a flag (tokens via `getpass`), writes `0600`, and refuses to overwrite without `--force`. Prompting is TTY-gated so scripted use works. It does not switch the active context.
+
 The `--context` flag must appear **before** the subcommand: `atlassian-local-cli --context work jira-get FOO-1`. Management commands: `context list | current | use <name> | unset | show [name]`.
 
 ## Architecture
 
 Python package in `src/atlassian_local_cli/` with `main.py` as a backward-compat shim for PyInstaller. Entry point `atlassian_local_cli.cli:main`. Managed with `uv` and built with `hatchling`.
 
-- **`config.py`** — `Config` dataclass + `get_config()` with lazy loading/caching. `reset_config()` for test isolation. Multi-context: `set_active_context(name)` (from `--context` flag, clears cache), `set_current_context(name)` (persists to `current-context` file), `list_contexts()`, `context_env_path(name)`, `context_exists(name)`, `resolve_context_name()`, `ContextNotFoundError`. Uses `dotenv_values` (not `load_dotenv`) so context switches don't pollute `os.environ` across calls within a single process.
-- **`clients.py`** — `create_confluence()` / `create_jira()` factory functions. Confluence supports basic or Bearer auth; Jira always uses Bearer (PATs don't work with basic auth).
+- **`config.py`** — `Config` dataclass + `get_config()` with lazy loading/caching. `reset_config()` for test isolation. Multi-context: `set_active_context(name)` (from `--context` flag, clears cache), `set_current_context(name)` (persists to `current-context` file), `list_contexts()`, `context_env_path(name)`, `context_exists(name)`, `resolve_context_name()`, `validate_context_name()` (rejects names that would escape `CONTEXTS_DIR`), `write_context_env()` (backs `context add`; `0600` file in a `0700` dir, double-quoted/escaped values), `ContextNotFoundError`, `ContextExistsError`, `InvalidContextNameError`. Uses `dotenv_values` (not `load_dotenv`) so context switches don't pollute `os.environ` across calls within a single process.
+- **`clients.py`** — `create_confluence()` / `create_jira()` factory functions. Confluence picks auth by `WIKI_USERNAME` (set → basic, unset → Bearer). Jira picks by **URL**, not username: `_jira_uses_basic_auth()` sends basic auth for `*.atlassian.net` (Cloud wants email + API token and 401s on Bearer) and a Bearer PAT otherwise (Server/DC 401s on basic). `JIRA_AUTH=basic|bearer` overrides the detection. Keying off `JIRA_USERNAME` instead would break the many Server configs carrying a stray, previously-unread username line.
 - **`converters.py`** — all pure transformation functions:
   - `preprocess_export_html()` — converts Confluence HTML to markdown tokens before html2text (status badges → `{status:TITLE|colour}`, user mentions → `@username`)
   - `md_to_confluence_html()` — converts markdown to Confluence storage format. Processes status badges and `@username` *before* the markdown parser (to avoid `|` in `{status:X|colour}` breaking table parsing), then transforms `<pre><code>` into `ac:structured-macro` code macros

@@ -1,4 +1,5 @@
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -8,9 +9,21 @@ CONFIG_DIR = Path.home() / ".config" / "atlassian-local-cli"
 CONTEXTS_DIR = CONFIG_DIR / "contexts"
 CURRENT_CONTEXT_FILE = CONFIG_DIR / "current-context"
 DEFAULT_CONTEXT_NAME = "default"
+DEFAULT_WIKI_URL = "https://wiki.example.com/"
+
+# Context names become filenames; keep them boring so they can't escape CONTEXTS_DIR.
+_VALID_CONTEXT_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 
 class ContextNotFoundError(Exception):
+    pass
+
+
+class ContextExistsError(Exception):
+    pass
+
+
+class InvalidContextNameError(ValueError):
     pass
 
 
@@ -23,11 +36,23 @@ class Config:
     jira_token: str | None
     jira_epic_name_field: str | None
     jira_epic_link_field: str | None
+    jira_username: str | None = None
+    jira_auth: str | None = None
     context: str = DEFAULT_CONTEXT_NAME
 
 
 _config: Config | None = None
 _active_context: str | None = None
+
+
+def validate_context_name(name: str) -> str:
+    cleaned = (name or "").strip()
+    if not _VALID_CONTEXT_NAME.match(cleaned):
+        raise InvalidContextNameError(
+            f"Invalid context name {name!r}. Use letters, digits, '.', '_' or '-', "
+            "starting with a letter or digit."
+        )
+    return cleaned
 
 
 def context_env_path(name: str) -> Path:
@@ -105,15 +130,41 @@ def load_config(env_file: Path | str | None = None, context: str | None = None) 
         return os.getenv(key) or values.get(key) or default
 
     return Config(
-        wiki_url=get("WIKI_URL", "https://wiki.example.com/") or "https://wiki.example.com/",
+        wiki_url=get("WIKI_URL", DEFAULT_WIKI_URL) or DEFAULT_WIKI_URL,
         wiki_username=get("WIKI_USERNAME"),
         wiki_token=get("WIKI_TOKEN"),
         jira_url=get("JIRA_URL"),
         jira_token=get("JIRA_TOKEN"),
         jira_epic_name_field=get("JIRA_EPIC_NAME_FIELD"),
         jira_epic_link_field=get("JIRA_EPIC_LINK_FIELD"),
+        jira_username=get("JIRA_USERNAME"),
+        jira_auth=get("JIRA_AUTH"),
         context=name,
     )
+
+
+def _env_quote(value: str) -> str:
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
+def write_context_env(name: str, values: dict[str, str | None], force: bool = False) -> Path:
+    """Write a context's .env file. Returns the path written."""
+    name = validate_context_name(name)
+    path = context_env_path(name)
+    if path.exists() and not force:
+        raise ContextExistsError(f"Context '{name}' already exists at {path}")
+
+    present = {k: v for k, v in values.items() if v}
+    for key, value in present.items():
+        if "\n" in value or "\r" in value:
+            raise ValueError(f"{key} must not contain newlines")
+
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    body = "".join(f"{k}={_env_quote(v)}\n" for k, v in present.items())
+    path.write_text(body)
+    path.chmod(0o600)
+    return path
 
 
 def get_config() -> Config:

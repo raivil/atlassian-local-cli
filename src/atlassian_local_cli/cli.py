@@ -1,9 +1,14 @@
 import argparse
+import getpass
+import os
 import sys
 from importlib.metadata import version
 
 from .config import (
+    DEFAULT_WIKI_URL,
+    ContextExistsError,
     ContextNotFoundError,
+    InvalidContextNameError,
     context_env_path,
     context_exists,
     get_current_context,
@@ -12,6 +17,8 @@ from .config import (
     resolve_context_name,
     set_active_context,
     set_current_context,
+    validate_context_name,
+    write_context_env,
 )
 from .jira_commands import (
     jira_create,
@@ -58,6 +65,86 @@ def _context_list(args):
         print(f"{marker} {name}{suffix}")
 
 
+def _prompt(label, default=None, secret=False):
+    # Non-interactive callers pass flags; anything they omit stays at its default
+    # rather than blocking on a prompt that nobody can answer.
+    if not sys.stdin.isatty():
+        return default or ""
+    suffix = f" [{default}]" if default else ""
+    reader = getpass.getpass if secret else input
+    try:
+        return reader(f"{label}{suffix}: ").strip() or (default or "")
+    except (EOFError, KeyboardInterrupt):
+        print("\nCancelled; no context was written.", file=sys.stderr)
+        sys.exit(1)
+
+
+CONTEXT_ADD_FIELDS = [
+    ("WIKI_URL", "wiki_url", "WIKI_URL", DEFAULT_WIKI_URL, False),
+    ("WIKI_USERNAME", "wiki_username", "WIKI_USERNAME (blank = Bearer auth)", None, False),
+    ("WIKI_TOKEN", "wiki_token", "WIKI_TOKEN", None, True),
+    ("JIRA_URL", "jira_url", "JIRA_URL", None, False),
+    ("JIRA_USERNAME", "jira_username", "JIRA_USERNAME (email; blank = Bearer/PAT auth)", None, False),
+    ("JIRA_TOKEN", "jira_token", "JIRA_TOKEN", None, True),
+]
+
+
+def _context_add(args):
+    try:
+        name = validate_context_name(args.name)
+    except InvalidContextNameError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if context_exists(name) and not args.force:
+        print(
+            f"Error: context '{name}' already exists at {context_env_path(name)}. "
+            "Pass --force to overwrite.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    values = {}
+    for key, attr, label, default, secret in CONTEXT_ADD_FIELDS:
+        supplied = getattr(args, attr)
+        values[key] = supplied if supplied is not None else _prompt(label, default, secret)
+
+    if not values["JIRA_TOKEN"] and not values["WIKI_TOKEN"]:
+        print(
+            "Error: at least one of JIRA_TOKEN or WIKI_TOKEN is required; "
+            "a context with neither cannot authenticate.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    values["JIRA_EPIC_NAME_FIELD"] = args.jira_epic_name_field
+    values["JIRA_EPIC_LINK_FIELD"] = args.jira_epic_link_field
+
+    try:
+        path = write_context_env(name, values, force=args.force)
+    except (ContextExistsError, InvalidContextNameError, ValueError) as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    # Shell env beats file values (see load_config), so a shadowed key would
+    # silently defeat the context the user just created.
+    shadowed = [k for k, v in values.items() if v and os.getenv(k)]
+    if shadowed:
+        plural = "s" if len(shadowed) > 1 else ""
+        print(
+            f"Warning: {', '.join(shadowed)} {'are' if plural else 'is'} also set in your shell "
+            f"environment, which overrides this file. Unset {'them' if plural else 'it'} or this "
+            "context won't take effect.",
+            file=sys.stderr,
+        )
+
+    print(f"Wrote {path}")
+    print("\nActivate it with:")
+    print(f"  atlassian-local-cli context use {name}")
+    print("Or for one command:")
+    print(f"  atlassian-local-cli --context {name} jira-me")
+
+
 def _context_current(args):
     print(resolve_context_name())
 
@@ -100,6 +187,7 @@ def _context_show(args):
     print(f"WIKI_USERNAME={config.wiki_username or '(unset)'}")
     print(f"WIKI_TOKEN={_mask(config.wiki_token)}")
     print(f"JIRA_URL={config.jira_url or '(unset)'}")
+    print(f"JIRA_USERNAME={config.jira_username or '(unset)'}")
     print(f"JIRA_TOKEN={_mask(config.jira_token)}")
     if config.jira_epic_name_field:
         print(f"JIRA_EPIC_NAME_FIELD={config.jira_epic_name_field}")
@@ -129,6 +217,19 @@ def main():
 
     cp = ctx_sub.add_parser("current", help="Print the currently active context name")
     cp.set_defaults(func=_context_current)
+
+    cp = ctx_sub.add_parser("add", help="Create a new context (prompts for anything not passed)")
+    cp.add_argument("name", help="Context name, e.g. 'work'")
+    cp.add_argument("--wiki-url")
+    cp.add_argument("--wiki-username", help="Set for basic auth; omit for Bearer")
+    cp.add_argument("--wiki-token")
+    cp.add_argument("--jira-url")
+    cp.add_argument("--jira-username", help="Atlassian Cloud email; omit for Server/DC Bearer PAT")
+    cp.add_argument("--jira-token")
+    cp.add_argument("--jira-epic-name-field")
+    cp.add_argument("--jira-epic-link-field")
+    cp.add_argument("--force", action="store_true", help="Overwrite an existing context")
+    cp.set_defaults(func=_context_add)
 
     cp = ctx_sub.add_parser("use", help="Set the persistent default context")
     cp.add_argument("name", help="Context name (must already exist as contexts/<name>.env)")

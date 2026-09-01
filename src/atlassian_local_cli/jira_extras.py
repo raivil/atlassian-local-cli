@@ -34,7 +34,10 @@ def jira_me(args):
     if args.json:
         print(json.dumps(user, indent=2))
         return
-    print(user.get("name") or user.get("accountId") or user.get("key", ""))
+    # Cloud has no "name"; falling straight through to accountId prints an opaque UUID.
+    who = user.get("name") or user.get("displayName") or user.get("accountId") or user.get("key", "")
+    email = user.get("emailAddress")
+    print(f"{who} <{email}>" if email else who)
 
 
 def jira_open(args):
