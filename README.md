@@ -144,6 +144,12 @@ atlassian-local-cli wiki-export 12345 -o page.md
 # Update a page from a markdown file
 atlassian-local-cli wiki-update 12345 page.md
 
+# List a page's attachments, or download them
+atlassian-local-cli wiki-attachments 12345
+atlassian-local-cli wiki-attachments 12345 -o ./attachments
+atlassian-local-cli wiki-attachments 12345 -o . --match '*.sql'
+atlassian-local-cli wiki-attachments 12345 --json
+
 # Create a new page
 atlassian-local-cli wiki-create SPACE "Page Title" content.md
 atlassian-local-cli wiki-create SPACE "Page Title" content.md --parent 12345
@@ -162,6 +168,14 @@ atlassian-local-cli wiki-raw 12345 --macros              # list top-level macros
 Exported files carry YAML frontmatter (page ID, space, version, author, dates,
 URL) and a `# Title` heading. Both are stripped automatically on update and
 create, so an exported file can be edited and pushed straight back.
+
+`wiki-attachments` lists every attachment on the page (name, size, media type,
+version, date); adding `-o <dir>` downloads them into that directory, creating
+it if needed. Existing files are overwritten, so re-running picks up newer
+versions of an attachment. `--match` takes a shell glob against the filename and
+applies to both listing and download. Note that `wiki-export` does not rewrite
+attachment links in the markdown to local paths — the exported body still points
+at the server.
 
 ### Jira
 
@@ -370,6 +384,7 @@ make clean                                                  # Remove build artif
 
 make wiki-export PAGE=12345 OUTPUT=page.md
 make wiki-update PAGE=12345 INPUT=page.md
+make wiki-attachments PAGE=12345 OUTPUT=./attachments MATCH='*.sql'
 make wiki-create SPACE=DEV TITLE="My Page" INPUT=page.md
 make wiki-delete PAGE=12345 YES=1
 make wiki-raw PAGE=12345 FORMAT=storage MACROS=1

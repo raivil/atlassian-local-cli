@@ -46,7 +46,14 @@ from .jira_extras import (
     jira_unlink,
     jira_worklog,
 )
-from .wiki import wiki_create, wiki_delete, wiki_export, wiki_raw, wiki_update
+from .wiki import (
+    wiki_attachments,
+    wiki_create,
+    wiki_delete,
+    wiki_export,
+    wiki_raw,
+    wiki_update,
+)
 
 
 def _context_list(args):
@@ -246,6 +253,14 @@ def main():
     p.add_argument("page_id", help="Confluence page ID")
     p.add_argument("-o", "--output", help="Output file (prints to stdout if omitted)")
     p.set_defaults(func=wiki_export)
+
+    p = subparsers.add_parser("wiki-attachments", help="List or download a page's attachments")
+    p.add_argument("page_id", help="Confluence page ID")
+    p.add_argument("-o", "--output", metavar="DIR",
+                   help="Download into this directory (lists to stdout if omitted)")
+    p.add_argument("--match", metavar="GLOB", help="Only attachments whose filename matches this glob")
+    p.add_argument("--json", action="store_true", help="Output the listing as JSON (ignored with -o)")
+    p.set_defaults(func=wiki_attachments)
 
     p = subparsers.add_parser("wiki-raw", help="Dump a page's raw HTML (debug export problems)")
     p.add_argument("page_id", help="Confluence page ID")

@@ -1,4 +1,7 @@
+import fnmatch
+import json
 import os
+import re
 import sys
 
 import html2text
@@ -116,6 +119,120 @@ def wiki_raw(args):
         print(f"Wrote {args.output}")
     else:
         print(content)
+
+
+ATTACHMENT_PAGE_SIZE = 50
+
+
+def _iter_attachments(confluence, page_id):
+    """Yield every attachment on a page. The REST endpoint caps each response at
+    `limit`, and the library's own download helper never pages past the first
+    batch — so pages with more than 50 files silently lose the rest."""
+    start = 0
+    while True:
+        response = confluence.get_attachments_from_content(
+            page_id=page_id, start=start, limit=ATTACHMENT_PAGE_SIZE, expand="version"
+        )
+        results = (response or {}).get("results") or []
+        yield from results
+        if len(results) < ATTACHMENT_PAGE_SIZE:
+            return
+        start += len(results)
+
+
+def _human_size(num_bytes):
+    size = float(num_bytes or 0)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if size < 1024 or unit == "TB":
+            return f"{size:.0f} B" if unit == "B" else f"{size:.1f} {unit}"
+        size /= 1024
+
+
+def _attachment_summary(attachment):
+    extensions = attachment.get("extensions") or {}
+    version = attachment.get("version") or {}
+    return {
+        "id": attachment.get("id"),
+        "title": attachment.get("title"),
+        "media_type": extensions.get("mediaType"),
+        "size": extensions.get("fileSize"),
+        "version": version.get("number"),
+        "updated": version.get("when"),
+        "download_url": (attachment.get("_links") or {}).get("download"),
+    }
+
+
+def _safe_attachment_name(title, attachment_id, taken):
+    """Attachment titles come from the server, so they can carry separators or
+    `..` segments that would write outside the download directory."""
+    base = os.path.basename((title or "").replace("\\", "/").strip())
+    base = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", base)
+    if base in ("", ".", ".."):
+        base = attachment_id or "attachment"
+
+    stem, ext = os.path.splitext(base)
+    name, counter = base, 1
+    while name.lower() in taken:
+        name = f"{stem} ({counter}){ext}"
+        counter += 1
+    taken.add(name.lower())
+    return name
+
+
+def _download_attachments(confluence, attachments, directory):
+    os.makedirs(directory, exist_ok=True)
+    root = os.path.realpath(directory)
+    taken = set()
+    written = 0
+    for attachment in attachments:
+        name = _safe_attachment_name(attachment["title"], attachment["id"], taken)
+        dest = os.path.join(directory, name)
+        # Catches a pre-existing symlink in the directory pointing somewhere else.
+        if os.path.realpath(dest) != os.path.join(root, name):
+            print(f"  Skipping {name}: resolves outside {directory}", file=sys.stderr)
+            continue
+        content = confluence.get(attachment["download_url"], not_json_response=True)
+        with open(dest, "wb") as f:
+            f.write(content)
+        written += 1
+        print(f"  Downloaded {name} ({_human_size(len(content))})")
+
+    plural = "" if written == 1 else "s"
+    print(f"{written} attachment{plural} -> {directory}")
+
+
+def wiki_attachments(args):
+    confluence = create_confluence()
+    attachments = [_attachment_summary(a) for a in _iter_attachments(confluence, args.page_id)]
+    if args.match:
+        attachments = [a for a in attachments if fnmatch.fnmatch(a["title"] or "", args.match)]
+
+    if args.json:
+        print(json.dumps(attachments, indent=2))
+        return
+
+    if not attachments:
+        if args.match:
+            print(f"No attachments matching {args.match!r} on page {args.page_id}.")
+        else:
+            print(f"No attachments on page {args.page_id}.")
+        return
+
+    if args.output:
+        _download_attachments(confluence, attachments, args.output)
+        return
+
+    name_width = max(len(a["title"] or "") for a in attachments)
+    size_width = max(len(_human_size(a["size"])) for a in attachments)
+    type_width = max(len(a["media_type"] or "?") for a in attachments)
+    for a in attachments:
+        print(
+            f"{a['title'] or '':<{name_width}}  {_human_size(a['size']):>{size_width}}  "
+            f"{a['media_type'] or '?':<{type_width}}  v{a['version']}  {(a['updated'] or '')[:10]}"
+        )
+    total = sum(a["size"] or 0 for a in attachments)
+    plural = "" if len(attachments) == 1 else "s"
+    print(f"{len(attachments)} attachment{plural}, {_human_size(total)} total")
 
 
 def _upload_attachments(confluence, page_id, images):

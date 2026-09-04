@@ -1,10 +1,17 @@
+import json
 from argparse import Namespace
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from atlassian_local_cli.converters import md_to_confluence_html
-from atlassian_local_cli.wiki import wiki_create, wiki_delete, wiki_export, wiki_update
+from atlassian_local_cli.wiki import (
+    wiki_attachments,
+    wiki_create,
+    wiki_delete,
+    wiki_export,
+    wiki_update,
+)
 
 MOCK_PAGE = {
     "id": "12345",
@@ -278,3 +285,190 @@ class TestWikiCreate:
         wiki_create(Namespace(space="DEV", title="Child", input_file=str(md_file), parent="11111"))
         kwargs = mock_confluence.create_page.call_args[1]
         assert kwargs["parent_id"] == "11111"
+
+
+def _attachment(title, size=1024, media_type="text/plain", att_id="att1", version=1,
+                when="2026-09-04T10:10:21.457Z", download=None):
+    return {
+        "id": att_id,
+        "title": title,
+        "version": {"number": version, "when": when},
+        "extensions": {"mediaType": media_type, "fileSize": size},
+        "_links": {"download": download or f"/download/attachments/12345/{title}?version={version}"},
+    }
+
+
+def _page(results, limit=50):
+    return {"start": 0, "limit": limit, "size": len(results), "results": results}
+
+
+class TestWikiAttachmentsList:
+    @patch("atlassian_local_cli.wiki.create_confluence")
+    def test_lists_name_size_and_totals(self, mock_create, capsys):
+        mock_confluence = MagicMock()
+        mock_confluence.get_attachments_from_content.return_value = _page([
+            _attachment("query1.txt", size=4119),
+            _attachment("pgdiag.sql", size=17061, media_type="application/octet-stream"),
+        ])
+        mock_create.return_value = mock_confluence
+
+        wiki_attachments(Namespace(page_id="12345", output=None, match=None, json=False))
+
+        out = capsys.readouterr().out
+        assert "query1.txt" in out
+        assert "4.0 KB" in out
+        assert "pgdiag.sql" in out
+        assert "16.7 KB" in out
+        assert "application/octet-stream" in out
+        assert "2026-09-04" in out
+        assert "2 attachments, 20.7 KB total" in out
+
+    @patch("atlassian_local_cli.wiki.create_confluence")
+    def test_json_output(self, mock_create, capsys):
+        mock_confluence = MagicMock()
+        mock_confluence.get_attachments_from_content.return_value = _page([
+            _attachment("query1.txt", size=4119, att_id="att99", version=3),
+        ])
+        mock_create.return_value = mock_confluence
+
+        wiki_attachments(Namespace(page_id="12345", output=None, match=None, json=True))
+
+        data = json.loads(capsys.readouterr().out)
+        assert data == [{
+            "id": "att99",
+            "title": "query1.txt",
+            "media_type": "text/plain",
+            "size": 4119,
+            "version": 3,
+            "updated": "2026-09-04T10:10:21.457Z",
+            "download_url": "/download/attachments/12345/query1.txt?version=3",
+        }]
+
+    @patch("atlassian_local_cli.wiki.create_confluence")
+    def test_paginates_past_the_first_page(self, mock_create, capsys):
+        first = _page([_attachment(f"f{i}.txt") for i in range(50)])
+        second = _page([_attachment(f"g{i}.txt") for i in range(3)])
+        mock_confluence = MagicMock()
+        mock_confluence.get_attachments_from_content.side_effect = [first, second]
+        mock_create.return_value = mock_confluence
+
+        wiki_attachments(Namespace(page_id="12345", output=None, match=None, json=False))
+
+        assert "53 attachments" in capsys.readouterr().out
+        starts = [c.kwargs["start"] for c in mock_confluence.get_attachments_from_content.call_args_list]
+        assert starts == [0, 50]
+
+    @patch("atlassian_local_cli.wiki.create_confluence")
+    def test_match_filters_by_glob(self, mock_create, capsys):
+        mock_confluence = MagicMock()
+        mock_confluence.get_attachments_from_content.return_value = _page([
+            _attachment("query1.txt"), _attachment("query2.txt"), _attachment("pgdiag.sql"),
+        ])
+        mock_create.return_value = mock_confluence
+
+        wiki_attachments(Namespace(page_id="12345", output=None, match="query*.txt", json=False))
+
+        out = capsys.readouterr().out
+        assert "query1.txt" in out
+        assert "pgdiag.sql" not in out
+        assert "2 attachments" in out
+
+    @patch("atlassian_local_cli.wiki.create_confluence")
+    def test_reports_empty_page(self, mock_create, capsys):
+        mock_confluence = MagicMock()
+        mock_confluence.get_attachments_from_content.return_value = _page([])
+        mock_create.return_value = mock_confluence
+
+        wiki_attachments(Namespace(page_id="12345", output=None, match=None, json=False))
+
+        assert "No attachments on page 12345." in capsys.readouterr().out
+
+
+class TestWikiAttachmentsDownload:
+    @staticmethod
+    def _client(results, bodies):
+        confluence = MagicMock()
+        confluence.get_attachments_from_content.return_value = _page(results)
+        confluence.get.side_effect = lambda url, **kwargs: bodies[url]
+        return confluence
+
+    @patch("atlassian_local_cli.wiki.create_confluence")
+    def test_downloads_into_directory(self, mock_create, tmp_path, capsys):
+        mock_create.return_value = self._client(
+            [_attachment("query1.txt"), _attachment("pgdiag.sql")],
+            {
+                "/download/attachments/12345/query1.txt?version=1": b"hello",
+                "/download/attachments/12345/pgdiag.sql?version=1": b"sql",
+            },
+        )
+
+        target = tmp_path / "att"
+        wiki_attachments(Namespace(page_id="12345", output=str(target), match=None, json=False))
+
+        assert (target / "query1.txt").read_bytes() == b"hello"
+        assert (target / "pgdiag.sql").read_bytes() == b"sql"
+        assert mock_create.return_value.get.call_args_list[0].kwargs["not_json_response"] is True
+        out = capsys.readouterr().out
+        assert "Downloaded query1.txt (5 B)" in out
+        assert f"2 attachments -> {target}" in out
+
+    @patch("atlassian_local_cli.wiki.create_confluence")
+    def test_strips_path_traversal_from_title(self, mock_create, tmp_path):
+        mock_create.return_value = self._client(
+            [_attachment("../../../evil.txt", download="/dl/evil")], {"/dl/evil": b"pwned"}
+        )
+
+        target = tmp_path / "att"
+        wiki_attachments(Namespace(page_id="12345", output=str(target), match=None, json=False))
+
+        assert (target / "evil.txt").read_bytes() == b"pwned"
+        assert list(target.iterdir()) == [target / "evil.txt"]
+
+    @patch("atlassian_local_cli.wiki.create_confluence")
+    def test_dedupes_names_colliding_after_sanitizing(self, mock_create, tmp_path):
+        mock_create.return_value = self._client(
+            [_attachment("a/x.txt", download="/dl/1"), _attachment("b/x.txt", download="/dl/2")],
+            {"/dl/1": b"first", "/dl/2": b"second"},
+        )
+
+        target = tmp_path / "att"
+        wiki_attachments(Namespace(page_id="12345", output=str(target), match=None, json=False))
+
+        assert (target / "x.txt").read_bytes() == b"first"
+        assert (target / "x (1).txt").read_bytes() == b"second"
+
+    @patch("atlassian_local_cli.wiki.create_confluence")
+    def test_skips_names_resolving_outside_target(self, mock_create, tmp_path, capsys):
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        target = tmp_path / "att"
+        target.mkdir()
+        (target / "x.txt").symlink_to(outside / "x.txt")
+        mock_create.return_value = self._client(
+            [_attachment("x.txt", download="/dl/x")], {"/dl/x": b"escaped"}
+        )
+
+        wiki_attachments(Namespace(page_id="12345", output=str(target), match=None, json=False))
+
+        assert not (outside / "x.txt").exists()
+        assert "x.txt" in capsys.readouterr().err
+
+    @patch("atlassian_local_cli.wiki.create_confluence")
+    def test_download_respects_match(self, mock_create, tmp_path):
+        mock_create.return_value = self._client(
+            [_attachment("query1.txt"), _attachment("pgdiag.sql")],
+            {"/download/attachments/12345/query1.txt?version=1": b"hello"},
+        )
+
+        target = tmp_path / "att"
+        wiki_attachments(Namespace(page_id="12345", output=str(target), match="*.txt", json=False))
+
+        assert [p.name for p in target.iterdir()] == ["query1.txt"]
+
+    @patch("atlassian_local_cli.wiki.create_confluence")
+    def test_reports_when_match_finds_nothing(self, mock_create, capsys):
+        mock_create.return_value = self._client([_attachment("query1.txt")], {})
+
+        wiki_attachments(Namespace(page_id="12345", output=None, match="*.pdf", json=False))
+
+        assert "No attachments matching '*.pdf' on page 12345." in capsys.readouterr().out

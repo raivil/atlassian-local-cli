@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.9.0 (2026-09-04)
+
+### Added
+- `wiki-attachments <page_id>` — list a Confluence page's attachments (name, size, media type, version, date), or download them with `-o <dir>`. Attachments could only ever move *up* before this: `wiki-update`/`wiki-create` upload local images referenced from the markdown, but nothing could read a page's existing files back, so pulling an incident page's 16 query dumps meant clicking through the browser one at a time. `--match <glob>` filters by filename for both listing and download, `--json` emits the listing for scripting.
+  - Pages through `get_attachments_from_content` 50 at a time rather than calling the library's `download_attachments_from_page`, which never pages past the first response and so silently drops attachment 51 onward. Going direct also gets listing, glob filtering and filename handling out of the same code path.
+  - Attachment titles are server-supplied and land in an `open()` path, so each one is basenamed and stripped of `<>:"/\|?*` and control characters before use; titles colliding after sanitization get a ` (1)` suffix instead of overwriting each other, and any destination whose resolved path leaves the target directory (a pre-existing symlink, say) is skipped with a warning rather than followed.
+  - Existing files are overwritten with no `--force` gate: an attachment can be updated in place on the page, and a skip-by-default would make the common case — re-pull the current version — silently do nothing.
+
 ## v2.8.0 (2026-09-01)
 
 ### Added

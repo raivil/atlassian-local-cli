@@ -31,3 +31,13 @@ class TestCliParsing:
         sys.argv = ["atlassian-local-cli", "jira-get", "PROJ-1"]
         main()
         mock_handler.assert_called_once()
+
+    @patch("atlassian_local_cli.cli.wiki_attachments")
+    def test_wiki_attachments_parses_flags(self, mock_handler):
+        sys.argv = ["atlassian-local-cli", "wiki-attachments", "12345", "-o", "att", "--match", "*.txt"]
+        main()
+        args = mock_handler.call_args[0][0]
+        assert args.page_id == "12345"
+        assert args.output == "att"
+        assert args.match == "*.txt"
+        assert args.json is False
