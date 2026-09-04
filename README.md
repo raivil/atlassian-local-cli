@@ -63,21 +63,27 @@ Verify it with `atlassian-local-cli context show` (tokens are masked).
 
 | Setting | Effect |
 |---|---|
+| `WIKI_URL` under `*.atlassian.net` | Confluence uses basic auth — **requires `WIKI_USERNAME`** |
 | `WIKI_USERNAME` set | Confluence uses basic auth (username + token) |
-| `WIKI_USERNAME` unset | Confluence uses a Bearer token |
+| Neither | Confluence uses a Bearer token |
 | `JIRA_URL` under `*.atlassian.net` | Jira uses basic auth — **requires `JIRA_USERNAME`** |
 | Any other `JIRA_URL` | Jira uses a Bearer Personal Access Token |
-| `JIRA_AUTH=basic` / `=bearer` | Overrides the URL rule above |
+| `WIKI_AUTH` / `JIRA_AUTH` = `basic`/`bearer` | Overrides the URL rules above |
 
-Jira's mode is chosen by URL, not by whether `JIRA_USERNAME` is set, because
-Cloud and Server reject each other's scheme with a 401.
+Cloud and Server reject each other's scheme, so a Cloud URL selects basic auth
+on its own. If the matching username is missing, the tool says which key to set
+instead of failing with a bare HTTP error.
 
-- **Cloud**: set `JIRA_USERNAME` to your account email and `JIRA_TOKEN` to an
+- **Cloud**: set `WIKI_USERNAME` / `JIRA_USERNAME` to your account email and the
+  token to an
   [API token](https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-atlassian-account/).
-- **Server / Data Center**: set `JIRA_TOKEN` to a Personal Access Token and
-  leave `JIRA_USERNAME` unset.
-- `JIRA_AUTH` is needed only for Cloud on a custom domain, which the
-  `*.atlassian.net` check cannot recognise.
+  One API token works for both Jira and Confluence on the same site.
+- **Server / Data Center**: set the token to a Personal Access Token and leave
+  `JIRA_USERNAME` unset. `WIKI_USERNAME` still selects basic auth here, which is
+  how Confluence auth has always been chosen.
+- `WIKI_AUTH` / `JIRA_AUTH` are needed only for Cloud on a custom domain, which
+  the `*.atlassian.net` check cannot recognise, or to opt an `atlassian.net`
+  host out of basic auth.
 
 ### Multiple accounts (contexts)
 

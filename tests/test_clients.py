@@ -144,3 +144,72 @@ class TestCreateJira:
         )
         with pytest.raises(SystemExit):
             create_jira(config)
+
+
+def _wiki_config(**overrides):
+    base = dict(
+        wiki_url="https://wiki.test.com/",
+        wiki_username=None,
+        wiki_token="a-token",
+        jira_url=None,
+        jira_token=None,
+        jira_epic_name_field=None,
+        jira_epic_link_field=None,
+    )
+    base.update(overrides)
+    return Config(**base)
+
+
+class TestCreateConfluenceCloudDetection:
+    @patch("atlassian_local_cli.clients.Confluence")
+    def test_cloud_url_with_username_uses_basic_auth(self, mock_cls):
+        create_confluence(_wiki_config(
+            wiki_url="https://valr-br.atlassian.net/", wiki_username="me@example.com"))
+        mock_cls.assert_called_once_with(
+            url="https://valr-br.atlassian.net/",
+            username="me@example.com",
+            password="a-token",
+        )
+
+    def test_cloud_url_without_username_exits_with_guidance(self, capsys):
+        with pytest.raises(SystemExit):
+            create_confluence(_wiki_config(wiki_url="https://valr-br.atlassian.net/"))
+        err = capsys.readouterr().err
+        assert "WIKI_USERNAME" in err
+        assert "WIKI_AUTH=bearer" in err
+
+    @patch("atlassian_local_cli.clients.Confluence")
+    def test_server_url_without_username_still_uses_bearer(self, mock_cls):
+        create_confluence(_wiki_config())
+        kwargs = mock_cls.call_args.kwargs
+        assert kwargs["session"].headers["Authorization"] == "Bearer a-token"
+
+    @patch("atlassian_local_cli.clients.Confluence")
+    def test_server_url_with_username_still_uses_basic(self, mock_cls):
+        create_confluence(_wiki_config(wiki_username="testuser"))
+        mock_cls.assert_called_once_with(
+            url="https://wiki.test.com/", username="testuser", password="a-token")
+
+    @patch("atlassian_local_cli.clients.Confluence")
+    def test_wiki_auth_bearer_overrides_cloud_detection(self, mock_cls):
+        create_confluence(_wiki_config(
+            wiki_url="https://valr-br.atlassian.net/", wiki_auth="bearer"))
+        kwargs = mock_cls.call_args.kwargs
+        assert kwargs["session"].headers["Authorization"] == "Bearer a-token"
+
+    @patch("atlassian_local_cli.clients.Confluence")
+    def test_wiki_auth_basic_forces_basic_on_a_custom_domain(self, mock_cls):
+        create_confluence(_wiki_config(
+            wiki_url="https://docs.example.com/", wiki_username="me@example.com", wiki_auth="basic"))
+        mock_cls.assert_called_once_with(
+            url="https://docs.example.com/", username="me@example.com", password="a-token")
+
+    def test_wiki_auth_basic_without_username_exits(self, capsys):
+        with pytest.raises(SystemExit):
+            create_confluence(_wiki_config(wiki_auth="basic"))
+        assert "WIKI_USERNAME" in capsys.readouterr().err
+
+    def test_invalid_wiki_auth_exits(self, capsys):
+        with pytest.raises(SystemExit):
+            create_confluence(_wiki_config(wiki_auth="oauth"))
+        assert "WIKI_AUTH must be 'basic' or 'bearer'" in capsys.readouterr().err

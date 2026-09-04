@@ -38,6 +38,7 @@ class Config:
     jira_epic_link_field: str | None
     jira_username: str | None = None
     jira_auth: str | None = None
+    wiki_auth: str | None = None
     context: str = DEFAULT_CONTEXT_NAME
 
 
@@ -139,6 +140,7 @@ def load_config(env_file: Path | str | None = None, context: str | None = None) 
         jira_epic_link_field=get("JIRA_EPIC_LINK_FIELD"),
         jira_username=get("JIRA_USERNAME"),
         jira_auth=get("JIRA_AUTH"),
+        wiki_auth=get("WIKI_AUTH"),
         context=name,
     )
 

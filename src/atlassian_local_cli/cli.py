@@ -89,7 +89,7 @@ def _prompt(label, default=None, secret=False):
 
 CONTEXT_ADD_FIELDS = [
     ("WIKI_URL", "wiki_url", "WIKI_URL", DEFAULT_WIKI_URL, False),
-    ("WIKI_USERNAME", "wiki_username", "WIKI_USERNAME (blank = Bearer auth)", None, False),
+    ("WIKI_USERNAME", "wiki_username", "WIKI_USERNAME (email on Cloud; blank = Bearer auth on Server)", None, False),
     ("WIKI_TOKEN", "wiki_token", "WIKI_TOKEN", None, True),
     ("JIRA_URL", "jira_url", "JIRA_URL", None, False),
     ("JIRA_USERNAME", "jira_username", "JIRA_USERNAME (email; blank = Bearer/PAT auth)", None, False),
