@@ -7,7 +7,6 @@ import sys
 import html2text
 
 from .clients import create_confluence
-from .config import get_config
 from .converters import (
     extract_page_property_divs,
     extract_report_macros,
@@ -20,6 +19,13 @@ from .converters import (
     serialize_passthrough_footer,
     strip_frontmatter_and_title,
 )
+
+
+def _page_url(confluence, page_id):
+    """Build a page URL from the client's base, not WIKI_URL: Cloud serves
+    Confluence under /wiki, which the client appends but WIKI_URL never carries.
+    Using WIKI_URL produced frontmatter and create output that 404s on Cloud."""
+    return f"{confluence.url.rstrip('/')}/pages/viewpage.action?pageId={page_id}"
 
 
 def wiki_export(args):
@@ -60,8 +66,7 @@ def wiki_export(args):
     # row boundary on reimport. Disabling wrapping entirely avoids that ambiguity.
     h.body_width = 0
 
-    config = get_config()
-    page_url = f"{config.wiki_url.rstrip('/')}/pages/viewpage.action?pageId={page['id']}"
+    page_url = _page_url(confluence, page["id"])
     frontmatter = (
         f"---\n"
         f"page_id: \"{page['id']}\"\n"
@@ -278,7 +283,6 @@ def wiki_create(args):
     base_dir = os.path.dirname(os.path.abspath(args.input_file))
     html_content, images = rewrite_local_images(html_content, base_dir)
 
-    config = get_config()
     confluence = create_confluence()
     result = confluence.create_page(
         space=args.space,
@@ -290,4 +294,4 @@ def wiki_create(args):
     page_id = result["id"]
     _upload_attachments(confluence, page_id, images)
     print(f"Created page {page_id}: {args.title}")
-    print(f"{config.wiki_url.rstrip('/')}/pages/viewpage.action?pageId={page_id}")
+    print(_page_url(confluence, page_id))

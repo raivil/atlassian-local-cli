@@ -41,3 +41,35 @@ class TestCliParsing:
         assert args.output == "att"
         assert args.match == "*.txt"
         assert args.json is False
+
+    @patch("atlassian_local_cli.cli.wiki_comments")
+    def test_wiki_comments_parses_flags(self, mock_handler):
+        sys.argv = ["atlassian-local-cli", "wiki-comments", "12345", "--location", "resolved"]
+        main()
+        args = mock_handler.call_args[0][0]
+        assert args.page_id == "12345"
+        assert args.location == "resolved"
+        assert args.json is False
+
+    @patch("atlassian_local_cli.cli.wiki_comments")
+    def test_wiki_comments_defaults_to_all_locations(self, mock_handler):
+        sys.argv = ["atlassian-local-cli", "wiki-comments", "12345"]
+        main()
+        assert mock_handler.call_args[0][0].location == "all"
+
+    @patch("atlassian_local_cli.cli.wiki_comment")
+    def test_wiki_comment_parses_body(self, mock_handler):
+        sys.argv = ["atlassian-local-cli", "wiki-comment", "12345", "--body", "hi"]
+        main()
+        args = mock_handler.call_args[0][0]
+        assert args.page_id == "12345"
+        assert args.body == "hi"
+        assert args.body_file is None
+
+    @patch("atlassian_local_cli.cli.wiki_comment_delete")
+    def test_wiki_comment_delete_parses_yes(self, mock_handler):
+        sys.argv = ["atlassian-local-cli", "wiki-comment-delete", "9001", "--yes"]
+        main()
+        args = mock_handler.call_args[0][0]
+        assert args.comment_id == "9001"
+        assert args.yes is True

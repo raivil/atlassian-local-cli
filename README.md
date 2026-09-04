@@ -150,6 +150,14 @@ atlassian-local-cli wiki-attachments 12345 -o ./attachments
 atlassian-local-cli wiki-attachments 12345 -o . --match '*.sql'
 atlassian-local-cli wiki-attachments 12345 --json
 
+# Comments (bodies are markdown, converted to Confluence storage format)
+atlassian-local-cli wiki-comments 12345
+atlassian-local-cli wiki-comments 12345 --location resolved
+atlassian-local-cli wiki-comments 12345 --json
+atlassian-local-cli wiki-comment 12345 --body "Checked the **replica lag**"
+cat notes.md | atlassian-local-cli wiki-comment 12345 --body-file -
+atlassian-local-cli wiki-comment-delete 12346 --yes
+
 # Create a new page
 atlassian-local-cli wiki-create SPACE "Page Title" content.md
 atlassian-local-cli wiki-create SPACE "Page Title" content.md --parent 12345
@@ -168,6 +176,13 @@ atlassian-local-cli wiki-raw 12345 --macros              # list top-level macros
 Exported files carry YAML frontmatter (page ID, space, version, author, dates,
 URL) and a `# Title` heading. Both are stripped automatically on update and
 create, so an exported file can be edited and pushed straight back.
+
+`wiki-comment` bodies are markdown and go through the same converter as
+`wiki-update`, so lists, code blocks and `**bold**` render properly on the page.
+Listing converts the rendered comment HTML back to markdown. `--location`
+narrows to `footer`, `inline` or `resolved` comments; replies are indented under
+their parent. `wiki-comment-delete` takes a *comment* id (from `wiki-comments`),
+requires `--yes`, and refuses an id that turns out to be a page.
 
 `wiki-attachments` lists every attachment on the page (name, size, media type,
 version, date); adding `-o <dir>` downloads them into that directory, creating
@@ -385,6 +400,9 @@ make clean                                                  # Remove build artif
 make wiki-export PAGE=12345 OUTPUT=page.md
 make wiki-update PAGE=12345 INPUT=page.md
 make wiki-attachments PAGE=12345 OUTPUT=./attachments MATCH='*.sql'
+make wiki-comments PAGE=12345 LOCATION=footer
+make wiki-comment PAGE=12345 BODY="Looks right to me"
+make wiki-comment-delete COMMENT=12346 YES=1
 make wiki-create SPACE=DEV TITLE="My Page" INPUT=page.md
 make wiki-delete PAGE=12345 YES=1
 make wiki-raw PAGE=12345 FORMAT=storage MACROS=1

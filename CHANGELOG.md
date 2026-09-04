@@ -1,5 +1,23 @@
 # Changelog
 
+## v2.10.0 (2026-09-04)
+
+### Added
+- Confluence page comments: `wiki-comments <page_id>` lists them, `wiki-comment <page_id> --body/--body-file` adds one, `wiki-comment-delete <comment_id> --yes` removes one. Only Jira had comment support before; reading or answering a comment on a wiki page meant opening the browser. Mirrors `jira-comment`/`jira-comments`, including the `--body`/`--body-file` pair with `-` for stdin and `--json` on the listing. Three `make` targets added.
+- Comment bodies are markdown in both directions. On add, the body goes through `md_to_confluence_html()` — the same converter `wiki-update` uses — because `add_comment()` posts its argument as `body.storage`, so raw markdown would land on the page as literal `**` and `- `. On list, the body is converted back through html2text.
+- `--location footer|inline|resolved` narrows the listing (default: all locations); replies are indented under their parent by `ancestors` depth.
+
+### Fixed
+- Page URLs are built from the client's base URL instead of `WIKI_URL`. Atlassian **Cloud** serves Confluence under `/wiki`, which the library's `Confluence` constructor appends but `WIKI_URL` never carries — so every URL the tool printed on Cloud was missing that segment and 404'd: the `url:` line in exported frontmatter and the link `wiki-create` prints. Verified against Cloud and Server; both now resolve (302), and the Server form is byte-identical to before.
+- Listing reads the *rendered* comment body (`body.export_view`, falling back to `body.view` then `body.storage`) rather than storage format. In storage format a code block is an `ac:structured-macro`, and html2text reduces it to the bare language name while dropping the CDATA payload — a SQL block listed as just `sql`, with the query gone. Caught by testing against a real comment rather than a mock; `--json` still returns the full payload including `body.storage`.
+
+### Changed
+- `_resolve_body()` moved out of `jira_extras.py` into a new `text_input.py` as `resolve_body()`, so `wiki-comment` can share the `--body`/`--body-file`/stdin handling without a wiki module importing from a Jira one. Behavior unchanged.
+
+### Notes
+- `wiki-comment-delete` requires `--yes` and first fetches the id to confirm it is a comment. `remove_content` will delete a page just as happily, and comment and page ids are indistinguishable by eye.
+- No `--reply-to`: `add_comment()` hardcodes `container` and sends no `ancestors`, so replying needs a hand-rolled POST. That payload was confirmed working against Server while verifying reply indentation, so the option is available if it's wanted later.
+
 ## v2.9.0 (2026-09-04)
 
 ### Added

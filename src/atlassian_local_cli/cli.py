@@ -54,6 +54,7 @@ from .wiki import (
     wiki_raw,
     wiki_update,
 )
+from .wiki_comments import wiki_comment, wiki_comment_delete, wiki_comments
 
 
 def _context_list(args):
@@ -253,6 +254,24 @@ def main():
     p.add_argument("page_id", help="Confluence page ID")
     p.add_argument("-o", "--output", help="Output file (prints to stdout if omitted)")
     p.set_defaults(func=wiki_export)
+
+    p = subparsers.add_parser("wiki-comments", help="List a page's comments")
+    p.add_argument("page_id", help="Confluence page ID")
+    p.add_argument("--location", choices=["all", "footer", "inline", "resolved"], default="all",
+                   help="Filter by comment location (default: all)")
+    p.add_argument("--json", action="store_true", help="Output as JSON")
+    p.set_defaults(func=wiki_comments)
+
+    p = subparsers.add_parser("wiki-comment", help="Add a comment to a page (body is markdown)")
+    p.add_argument("page_id", help="Confluence page ID")
+    p.add_argument("--body", help="Comment body as markdown")
+    p.add_argument("--body-file", help="Read the markdown body from a file (use '-' for stdin)")
+    p.set_defaults(func=wiki_comment)
+
+    p = subparsers.add_parser("wiki-comment-delete", help="Delete a page comment")
+    p.add_argument("comment_id", help="Comment ID (from wiki-comments)")
+    p.add_argument("--yes", action="store_true", help="Confirm deletion (required)")
+    p.set_defaults(func=wiki_comment_delete)
 
     p = subparsers.add_parser("wiki-attachments", help="List or download a page's attachments")
     p.add_argument("page_id", help="Confluence page ID")

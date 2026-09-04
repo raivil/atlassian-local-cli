@@ -30,10 +30,8 @@ MOCK_PAGE = {
 
 
 class TestWikiExport:
-    @patch("atlassian_local_cli.wiki.get_config")
     @patch("atlassian_local_cli.wiki.create_confluence")
-    def test_stdout(self, mock_create, mock_config, capsys):
-        mock_config.return_value = MagicMock(wiki_url="https://wiki.test.com/")
+    def test_stdout(self, mock_create, capsys):
         mock_confluence = MagicMock()
         mock_confluence.get_page_by_id.return_value = MOCK_PAGE
         mock_create.return_value = mock_confluence
@@ -43,10 +41,8 @@ class TestWikiExport:
         assert "# Test Page" in output
         assert "Hello world" in output
 
-    @patch("atlassian_local_cli.wiki.get_config")
     @patch("atlassian_local_cli.wiki.create_confluence")
-    def test_to_file(self, mock_create, mock_config, tmp_path):
-        mock_config.return_value = MagicMock(wiki_url="https://wiki.test.com/")
+    def test_to_file(self, mock_create, tmp_path):
         mock_confluence = MagicMock()
         mock_confluence.get_page_by_id.return_value = MOCK_PAGE
         mock_create.return_value = mock_confluence
@@ -56,10 +52,8 @@ class TestWikiExport:
         content = (tmp_path / "out.md").read_text()
         assert "# Test Page" in content
 
-    @patch("atlassian_local_cli.wiki.get_config")
     @patch("atlassian_local_cli.wiki.create_confluence")
-    def test_frontmatter(self, mock_create, mock_config, capsys):
-        mock_config.return_value = MagicMock(wiki_url="https://wiki.test.com/")
+    def test_frontmatter(self, mock_create, capsys):
         mock_confluence = MagicMock()
         mock_confluence.get_page_by_id.return_value = MOCK_PAGE
         mock_create.return_value = mock_confluence
@@ -108,12 +102,10 @@ class TestWikiExportUnsafeTable:
         }
         return page
 
-    @patch("atlassian_local_cli.wiki.get_config")
     @patch("atlassian_local_cli.wiki.create_confluence")
     def test_export_then_update_preserves_table_verbatim(
-        self, mock_create, mock_config, tmp_path
+        self, mock_create, tmp_path
     ):
-        mock_config.return_value = MagicMock(wiki_url="https://wiki.test.com/")
         mock_confluence = MagicMock()
         mock_confluence.get_page_by_id.return_value = self._page()
         mock_create.return_value = mock_confluence
@@ -163,10 +155,8 @@ class TestWikiExportLongTableCell:
         }
         return page
 
-    @patch("atlassian_local_cli.wiki.get_config")
     @patch("atlassian_local_cli.wiki.create_confluence")
-    def test_long_cell_stays_on_one_line(self, mock_create, mock_config, tmp_path):
-        mock_config.return_value = MagicMock(wiki_url="https://wiki.test.com/")
+    def test_long_cell_stays_on_one_line(self, mock_create, tmp_path):
         mock_confluence = MagicMock()
         mock_confluence.get_page_by_id.return_value = self._page()
         mock_create.return_value = mock_confluence
@@ -254,10 +244,8 @@ class TestWikiDelete:
 
 
 class TestWikiCreate:
-    @patch("atlassian_local_cli.wiki.get_config")
     @patch("atlassian_local_cli.wiki.create_confluence")
-    def test_creates_page(self, mock_create, mock_config, tmp_path, capsys):
-        mock_config.return_value = MagicMock(wiki_url="https://wiki.test.com/")
+    def test_creates_page(self, mock_create, tmp_path, capsys):
         mock_confluence = MagicMock()
         mock_confluence.create_page.return_value = {"id": "99999"}
         mock_create.return_value = mock_confluence
@@ -271,10 +259,8 @@ class TestWikiCreate:
         assert kwargs["space"] == "DEV"
         assert kwargs["title"] == "My New Page"
 
-    @patch("atlassian_local_cli.wiki.get_config")
     @patch("atlassian_local_cli.wiki.create_confluence")
-    def test_with_parent(self, mock_create, mock_config, tmp_path, capsys):
-        mock_config.return_value = MagicMock(wiki_url="https://wiki.test.com/")
+    def test_with_parent(self, mock_create, tmp_path, capsys):
         mock_confluence = MagicMock()
         mock_confluence.create_page.return_value = {"id": "99999"}
         mock_create.return_value = mock_confluence
@@ -472,3 +458,43 @@ class TestWikiAttachmentsDownload:
         wiki_attachments(Namespace(page_id="12345", output=None, match="*.pdf", json=False))
 
         assert "No attachments matching '*.pdf' on page 12345." in capsys.readouterr().out
+
+
+class TestPageUrlBase:
+    """Cloud serves Confluence under /wiki, which the client appends but
+    config.wiki_url never carries — so page URLs must come from the client."""
+
+    @patch("atlassian_local_cli.wiki.create_confluence")
+    def test_export_frontmatter_url_uses_client_base(self, mock_create, capsys):
+        confluence = MagicMock()
+        confluence.url = "https://valr-br.atlassian.net/wiki"
+        confluence.get_page_by_id.return_value = MOCK_PAGE
+        mock_create.return_value = confluence
+
+        wiki_export(Namespace(page_id="12345", output=None))
+
+        assert "url: https://valr-br.atlassian.net/wiki/pages/viewpage.action?pageId=12345" in capsys.readouterr().out
+
+    @patch("atlassian_local_cli.wiki.create_confluence")
+    def test_export_frontmatter_url_unchanged_on_server(self, mock_create, capsys):
+        confluence = MagicMock()
+        confluence.url = "https://wiki.test.com/"
+        confluence.get_page_by_id.return_value = MOCK_PAGE
+        mock_create.return_value = confluence
+
+        wiki_export(Namespace(page_id="12345", output=None))
+
+        assert "url: https://wiki.test.com/pages/viewpage.action?pageId=12345" in capsys.readouterr().out
+
+    @patch("atlassian_local_cli.wiki.create_confluence")
+    def test_create_prints_url_from_client_base(self, mock_create, tmp_path, capsys):
+        confluence = MagicMock()
+        confluence.url = "https://valr-br.atlassian.net/wiki"
+        confluence.create_page.return_value = {"id": "99999"}
+        mock_create.return_value = confluence
+
+        md_file = tmp_path / "in.md"
+        md_file.write_text("# T\n\nbody")
+        wiki_create(Namespace(space="DEV", title="T", input_file=str(md_file), parent=None))
+
+        assert "https://valr-br.atlassian.net/wiki/pages/viewpage.action?pageId=99999" in capsys.readouterr().out

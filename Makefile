@@ -1,4 +1,4 @@
-.PHONY: setup build clean test test-cov wiki-export wiki-attachments wiki-update wiki-create jira-create jira-link-epic jira-get jira-my-tasks jira-transition jira-update jira-me jira-open jira-search jira-comment jira-comments jira-link jira-unlink jira-link-types jira-worklog jira-sprints jira-sprint-add jira-sprint-issues jira-clone jira-delete jira-epics jira-epic-issues context-list context-current context-use context-unset context-show
+.PHONY: setup build clean test test-cov wiki-export wiki-attachments wiki-comments wiki-comment wiki-comment-delete wiki-update wiki-create jira-create jira-link-epic jira-get jira-my-tasks jira-transition jira-update jira-me jira-open jira-search jira-comment jira-comments jira-link jira-unlink jira-link-types jira-worklog jira-sprints jira-sprint-add jira-sprint-issues jira-clone jira-delete jira-epics jira-epic-issues context-list context-current context-use context-unset context-show
 
 # All atlassian-local-cli invocations. Pass CONTEXT=<name> on any target
 # to override the active context just for that command.
@@ -29,6 +29,19 @@ wiki-raw: ## Dump a wiki page's raw HTML. Usage: make wiki-raw PAGE=<page_id> [F
 wiki-attachments: ## List or download a wiki page's attachments. Usage: make wiki-attachments PAGE=<page_id> [OUTPUT=<dir>] [MATCH=<glob>] [JSON=1]
 	@if [ -z "$(PAGE)" ]; then echo "Error: PAGE is required."; exit 1; fi
 	$(CLI) wiki-attachments $(PAGE) $(if $(OUTPUT),-o $(OUTPUT)) $(if $(MATCH),--match '$(MATCH)') $(if $(JSON),--json)
+
+wiki-comments: ## List a wiki page's comments. Usage: make wiki-comments PAGE=<page_id> [LOCATION=footer|inline|resolved] [JSON=1]
+	@if [ -z "$(PAGE)" ]; then echo "Error: PAGE is required."; exit 1; fi
+	$(CLI) wiki-comments $(PAGE) $(if $(LOCATION),--location $(LOCATION)) $(if $(JSON),--json)
+
+wiki-comment: ## Add a comment to a wiki page. Usage: make wiki-comment PAGE=<page_id> BODY="<markdown>" | BODY_FILE=<file>
+	@if [ -z "$(PAGE)" ]; then echo "Error: PAGE is required."; exit 1; fi
+	$(CLI) wiki-comment $(PAGE) $(if $(BODY),--body "$(BODY)") $(if $(BODY_FILE),--body-file $(BODY_FILE))
+
+wiki-comment-delete: ## Delete a wiki page comment. Usage: make wiki-comment-delete COMMENT=<comment_id> YES=1
+	@if [ -z "$(COMMENT)" ]; then echo "Error: COMMENT is required."; exit 1; fi
+	@if [ -z "$(YES)" ]; then echo "Error: YES=1 required to confirm deletion."; exit 1; fi
+	$(CLI) wiki-comment-delete $(COMMENT) --yes
 
 wiki-update: ## Update a wiki page. Usage: make wiki-update PAGE=<page_id> INPUT=<file.md>
 	@if [ -z "$(PAGE)" ]; then echo "Error: PAGE is required."; exit 1; fi
