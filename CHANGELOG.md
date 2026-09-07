@@ -13,7 +13,7 @@
 - `wiki-update` and `wiki-create` now warn when a relative `<img src>` has no file on disk. Previously they uploaded the unresolvable tag in silence, and the broken image only showed up on the page afterwards.
 
 ### Changed
-- GitHub Actions bumped off the deprecated Node 20 runtime: `checkout` v4→v7, `setup-python` v5→v7, `upload-artifact` v4→v7, `download-artifact` v4→v8, `setup-uv` v6→v10, `action-gh-release` v2→v3. The `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24` workaround is removed with them, since it existed only to paper over that deprecation.
+- GitHub Actions bumped off the deprecated Node 20 runtime: `checkout` v4→v7, `setup-python` v5→v7, `upload-artifact` v4→v7, `download-artifact` v4→v8, `setup-uv` v6→v10.0.1 (pinned exactly: that action publishes no moving major tag past v7, so `@v10` does not resolve), `action-gh-release` v2→v3. The `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24` workaround is removed with them, since it existed only to paper over that deprecation.
 
 ## v2.10.0 (2026-09-04)
 
