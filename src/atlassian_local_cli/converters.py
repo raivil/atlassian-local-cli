@@ -234,6 +234,46 @@ def _fill_empty_table_cells(html):
     return str(soup) if changed else html
 
 
+# Inline formats markdown cannot express. html2text folds <u> into its emphasis
+# handling (turning underline into italic) and drops <sup>/<sub> while keeping
+# their text, so these tags are shielded behind SOH sentinels and restored as
+# literal HTML afterwards. Only the tags are shielded, never their contents, so
+# nested formatting inside them still reaches html2text.
+SHIELDED_INLINE_TAGS = ("u", "sup", "sub")
+_SHIELD_RE = re.compile(r"\x01(/?)(u|sup|sub)\x01")
+
+
+def _shield_inline_html(html):
+    # The Confluence editor writes strikethrough and underline as styled spans;
+    # html2text has no notion of CSS, so it would drop them silently.
+    html = re.sub(
+        r'<span[^>]*style="[^"]*text-decoration:\s*line-through[^"]*"[^>]*>(.*?)</span>',
+        r"<s>\1</s>",
+        html,
+        flags=re.DOTALL,
+    )
+    html = re.sub(
+        r'<span[^>]*style="[^"]*text-decoration:\s*underline[^"]*"[^>]*>(.*?)</span>',
+        r"<u>\1</u>",
+        html,
+        flags=re.DOTALL,
+    )
+    html = re.sub(r"</?ins\b[^>]*>", lambda m: "\x01/u\x01" if m.group(0).startswith("</") else "\x01u\x01", html)
+    for tag in SHIELDED_INLINE_TAGS:
+        html = re.sub(rf"<{tag}\b[^>]*>", f"\x01{tag}\x01", html)
+        html = html.replace(f"</{tag}>", f"\x01/{tag}\x01")
+    return html
+
+
+def _restore_inline_html(md_text):
+    # html2text leaves a space between nested emphasis and the closing tag
+    # ("<u>**x** </u>"). Move it outside the tag rather than dropping it, or
+    # "<u>b c </u>D" would come back as "<u>b c</u>D" with the words joined.
+    md_text = re.sub(r"[ \t]+\x01/(u|sup|sub)\x01", "\x01/\\1\x01 ", md_text)
+    md_text = re.sub(r"\x01(u|sup|sub)\x01[ \t]+", " \x01\\1\x01", md_text)
+    return _SHIELD_RE.sub(lambda m: f"<{m.group(1)}{m.group(2)}>", md_text)
+
+
 def preprocess_export_html(html):
     """Convert Confluence-specific HTML elements to markdown-friendly tokens before html2text."""
 
@@ -247,6 +287,7 @@ def preprocess_export_html(html):
     )
 
     html = convert_inline_confluence_tokens(html)
+    html = _shield_inline_html(html)
 
     # Task lists inside table cells: convert to compact inline format
     # (markdown checkboxes can't live inside table cells)
@@ -392,6 +433,7 @@ def _restore_empty_table_cells(md_text):
 
 def postprocess_export_md(md_text):
     """Convert placeholders back to markdown syntax after html2text."""
+    md_text = _restore_inline_html(md_text)
     if EMPTY_CELL_SENTINEL in md_text:
         md_text = _restore_empty_table_cells(md_text)
     md_text = re.sub(r'TASK-CHECKED: (.+)', r'- [x] \1', md_text)
@@ -893,6 +935,23 @@ def _escape_unmatched_tags(html):
     return out
 
 
+# Fenced blocks (``` or ~~~) and inline code spans, so pre-parser substitutions
+# can skip them. Python-Markdown has not run yet at that point, so a literal
+# ~~x~~ inside backticks would otherwise be rewritten as real strikethrough.
+_CODE_REGION_RE = re.compile(r"```.*?```|~~~.*?~~~|`[^`\n]*`", re.DOTALL)
+
+
+def _sub_outside_code(pattern, repl, md_text):
+    parts = []
+    pos = 0
+    for m in _CODE_REGION_RE.finditer(md_text):
+        parts.append(re.sub(pattern, repl, md_text[pos:m.start()]))
+        parts.append(m.group(0))
+        pos = m.end()
+    parts.append(re.sub(pattern, repl, md_text[pos:]))
+    return "".join(parts)
+
+
 def md_to_confluence_html(md_text):
     """Convert markdown to Confluence storage format HTML."""
     # Extract passthrough blocks first
@@ -923,6 +982,11 @@ def md_to_confluence_html(md_text):
         r'<time datetime="\1" />',
         md_text,
     )
+
+    # GFM strikethrough: Python-Markdown implements no such syntax, so without
+    # this ~~x~~ reaches the page as literal tildes — while export happily emits
+    # ~~x~~ for <s>, making the round trip lossy in one direction only.
+    md_text = _sub_outside_code(r'~~(.+?)~~', r'<s>\1</s>', md_text)
 
     # Extract <details> blocks before markdown parsing
     expand_blocks = {}

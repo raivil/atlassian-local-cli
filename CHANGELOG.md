@@ -1,5 +1,18 @@
 # Changelog
 
+## v2.12.0 (2026-09-07)
+
+### Fixed
+- Text formatting no longer degrades on round trip. Verified against both a Server and a Cloud instance by posting every variant as storage, exporting, re-uploading the export and diffing: previously four of the nine formats were lost or corrupted, now all nine survive.
+  - **Underline was silently turned into italic.** html2text folds `<u>` into its emphasis handling, so `<u>text</u>` exported as `_text_` and re-uploaded as `<em>`. Not a visible loss in review — the page just quietly changed meaning. `<u>`, `<ins>`, `<sup>` and `<sub>` are now shielded behind sentinels during html2text and restored as inline HTML, which markdown renderers display natively so the exported file still previews correctly.
+  - **Superscript and subscript were dropped**, keeping their text: `x<sup>2</sup>` became `x2` and `H<sub>2</sub>O` became `H2O`.
+  - **Strikethrough was asymmetric, which actively corrupted pages.** Export emitted `~~x~~` for `<s>`/`<del>`/`<strike>`, but Python-Markdown has no strikethrough syntax and nothing handled it on upload, so exporting a page and pushing it straight back replaced the formatting with literal tildes. `~~x~~` now converts to `<s>`, skipping fenced blocks and inline code spans so `` `~~x~~` `` stays literal.
+  - **The Confluence editor's styled-span forms were dropped entirely.** `<span style="text-decoration: line-through">` and its underline counterpart carry no tag html2text understands, so both the formatting and the tag vanished, leaving bare text. They are now normalised to `<s>`/`<u>` before conversion.
+  - Bold, italic, bold+italic, inline code and links were already correct; they have regression tests now, and they passed before the change, which is what makes them guards.
+
+### Notes
+- Only the strikethrough substitution is guarded against code spans. The pre-existing `{status:…}`, `{jira:…}` and `{date:…}` substitutions also run before the markdown parser and are still rewritten inside backticks; that is unchanged behaviour, not something this release introduces.
+
 ## v2.11.0 (2026-09-06)
 
 ### Added

@@ -373,6 +373,10 @@ on export.
 
 | Markdown | Confluence |
 |---|---|
+| `**bold**`, `*italic*` | `<strong>`, `<em>` |
+| `~~struck~~` | `<s>` (strikethrough) |
+| `<u>text</u>` | `<u>` (underline — markdown has no syntax for it) |
+| `x<sup>2</sup>`, `H<sub>2</sub>O` | `<sup>`, `<sub>` |
 | `{status:DONE\|green}` | Status badge |
 | `@jdoe` | User mention |
 | `{date:2026-03-26}` | Date |
@@ -385,6 +389,12 @@ on export.
 | `\|\| TEXT \|\|` table row | Full-width section header (`colspan`) |
 | `<!-- page-properties -->` above a table | Page Properties macro |
 | `<!-- page-properties-report key=value -->` | Page Properties Report macro |
+
+Underline, superscript and subscript have no markdown syntax, so they travel as
+inline HTML — which markdown renderers display natively, so the exported file
+still previews correctly. Strikethrough uses GFM `~~`; tildes inside inline code
+or a fenced block are left alone. On export, Confluence's styled-span forms
+(`<span style="text-decoration: line-through">`) are normalised to `<s>`/`<u>`.
 
 Status badge colours: `green`, `red`, `blue`, `yellow`, `grey`.
 

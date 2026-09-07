@@ -1198,3 +1198,107 @@ class TestRewriteAttachmentImages:
         out, names = rewrite_attachment_images(html)
         assert out == html
         assert names == []
+
+
+def _export_to_md(html):
+    """The export pipeline as wiki_export runs it: preprocess, html2text, postprocess."""
+    h = html2text.HTML2Text()
+    h.ignore_links = False
+    h.ignore_images = False
+    h.ignore_emphasis = False
+    h.body_width = 0
+    return postprocess_export_md(h.handle(preprocess_export_html(html))).strip()
+
+
+class TestStrikethroughUpload:
+    def test_converts_tildes_to_s_tag(self):
+        assert "<s>struck</s>" in md_to_confluence_html("~~struck~~")
+
+    def test_keeps_bold_inside_strikethrough(self):
+        out = md_to_confluence_html("~~**gone**~~")
+        assert "<s>" in out and "<strong>gone</strong>" in out
+
+    def test_works_in_a_table_cell(self):
+        out = md_to_confluence_html("| a |\n| --- |\n| ~~x~~ |")
+        assert "<td><s>x</s></td>" in out
+
+    def test_works_in_a_list_item(self):
+        assert "<li><s>x</s> done</li>" in md_to_confluence_html("- ~~x~~ done")
+
+    def test_leaves_tildes_inside_an_inline_code_span(self):
+        out = md_to_confluence_html("use `~~not struck~~` here")
+        assert "<code>~~not struck~~</code>" in out
+        assert "<s>" not in out
+
+    def test_leaves_tildes_inside_a_fenced_block(self):
+        out = md_to_confluence_html("```\n~~not struck~~\n```")
+        assert "~~not struck~~" in out
+        assert "<s>" not in out
+
+    def test_does_not_mangle_a_tilde_fenced_block(self):
+        out = md_to_confluence_html("~~~\ncode here\n~~~")
+        assert "<s>" not in out
+
+
+class TestInlineHtmlUploadPassthrough:
+    def test_underline_passes_through(self):
+        assert "<u>x</u>" in md_to_confluence_html("<u>x</u>")
+
+    def test_sup_and_sub_pass_through(self):
+        out = md_to_confluence_html("x<sup>2</sup> and H<sub>2</sub>O")
+        assert "<sup>2</sup>" in out
+        assert "<sub>2</sub>" in out
+
+
+class TestFormattingExport:
+    def test_strikethrough_tags_become_tildes(self):
+        for tag in ("s", "del", "strike"):
+            assert _export_to_md(f"<p><{tag}>x</{tag}></p>") == "~~x~~"
+
+    def test_line_through_span_becomes_tildes(self):
+        html = '<p><span style="text-decoration: line-through;">x</span></p>'
+        assert _export_to_md(html) == "~~x~~"
+
+    def test_underline_tag_survives_as_html(self):
+        assert _export_to_md("<p><u>x</u></p>") == "<u>x</u>"
+
+    def test_underline_span_becomes_a_u_tag(self):
+        html = '<p><span style="text-decoration: underline;">x</span></p>'
+        assert _export_to_md(html) == "<u>x</u>"
+
+    def test_ins_tag_survives_as_underline(self):
+        assert _export_to_md("<p><ins>x</ins></p>") == "<u>x</u>"
+
+    def test_superscript_and_subscript_survive_as_html(self):
+        assert _export_to_md("<p>x<sup>2</sup></p>") == "x<sup>2</sup>"
+        assert _export_to_md("<p>H<sub>2</sub>O</p>") == "H<sub>2</sub>O"
+
+    def test_keeps_nested_formatting_inside_underline(self):
+        assert _export_to_md("<p><u><strong>x</strong></u></p>") == "<u>**x**</u>"
+
+    def test_bold_and_italic_are_unchanged(self):
+        assert _export_to_md("<p><strong>b</strong> <em>i</em></p>") == "**b** _i_"
+
+
+class TestFormattingRoundTrip:
+    PROBE = (
+        "<p>A <strong>bold</strong> B <em>italic</em> C <u>underline</u> D <s>strike</s> "
+        'E <span style="text-decoration: line-through;">span-strike</span> '
+        'F <span style="text-decoration: underline;">span-under</span> '
+        "G x<sup>2</sup> H H<sub>2</sub>O I <code>code</code></p>"
+    )
+
+    def test_every_format_survives_export_then_upload(self):
+        md = _export_to_md(self.PROBE)
+        html = md_to_confluence_html(md)
+        for expected in (
+            "<strong>bold</strong>", "<em>italic</em>", "<u>underline</u>",
+            "<s>strike</s>", "<s>span-strike</s>", "<u>span-under</u>",
+            "<sup>2</sup>", "<sub>2</sub>", "<code>code</code>",
+        ):
+            assert expected in html, f"{expected} lost; got {html}"
+
+    def test_second_export_matches_the_first(self):
+        first = _export_to_md(self.PROBE)
+        second = _export_to_md(md_to_confluence_html(first))
+        assert second == first
