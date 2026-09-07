@@ -441,3 +441,11 @@ class TestJiraEpics:
         jira_epic_issues(Namespace(epic="PROJ-100", limit=50, json=False))
         out = capsys.readouterr().out
         assert "PROJ-201" in out
+
+
+class TestJiraDeleteGuardOrdering:
+    @patch("atlassian_local_cli.jira_extras.create_jira")
+    def test_refuses_before_authenticating(self, mock_create):
+        with pytest.raises(SystemExit):
+            jira_delete(Namespace(issue_key="PROJ-1", yes=False, cascade=False))
+        mock_create.assert_not_called()

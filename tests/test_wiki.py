@@ -617,3 +617,13 @@ class TestWikiRawFormat:
         out = capsys.readouterr().out
         assert "export_view" in out
         assert "Hello world" in out
+
+
+class TestDeleteGuardOrdering:
+    @patch("atlassian_local_cli.wiki.create_confluence")
+    def test_refuses_before_authenticating(self, mock_create):
+        """Building the client first means a context with no token reports
+        'WIKI_TOKEN is not set' instead of the actual problem, the missing --yes."""
+        with pytest.raises(SystemExit):
+            wiki_delete(Namespace(page_id="12345", yes=False, cascade=False))
+        mock_create.assert_not_called()

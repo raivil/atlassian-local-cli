@@ -24,6 +24,8 @@ make wiki-comment-delete COMMENT=<id> YES=1                 # Delete a page comm
 make wiki-raw PAGE=<id> [MACROS=1]                          # Dump raw page HTML / list macros (debug exports)
 make wiki-create SPACE=<key> TITLE="title" INPUT=<file.md>  # Create Confluence page
 make wiki-delete PAGE=<id> YES=1 [CASCADE=1]                # Delete Confluence page (moves to trash)
+make jira-create PROJECT=<key> SUMMARY="..."                 # Create a Jira issue
+make jira-link-epic ISSUES="A-1 A-2" EPIC=<key>              # Link issues to an epic
 make jira-get ISSUE=<key>                                   # Display a Jira issue
 make jira-my-tasks [JSON=1] [LIMIT=50]                      # List your assigned tasks
 make jira-transition ISSUE=<key> [STATUS="<status>"] [RESOLUTION="Won't Do"]  # Transition issue (omit STATUS to list options)

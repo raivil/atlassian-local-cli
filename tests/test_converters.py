@@ -1302,3 +1302,44 @@ class TestFormattingRoundTrip:
         first = _export_to_md(self.PROBE)
         second = _export_to_md(md_to_confluence_html(first))
         assert second == first
+
+
+class TestCodeRegionGuard:
+    """Every pre-parser substitution must skip code, not just strikethrough."""
+
+    def test_status_token_in_inline_code_stays_literal(self):
+        out = md_to_confluence_html("use `{status:DONE|green}` in a page")
+        assert "<code>{status:DONE|green}</code>" in out
+        assert "ac:name=\"status\"" not in out
+
+    def test_status_token_in_fenced_block_stays_literal(self):
+        out = md_to_confluence_html("```\n{status:DONE|green}\n```")
+        assert "{status:DONE|green}" in out
+        assert "ac:name=\"status\"" not in out
+
+    def test_jira_token_in_inline_code_stays_literal(self):
+        out = md_to_confluence_html("call `{jira:PROJ-123}` here")
+        assert "<code>{jira:PROJ-123}</code>" in out
+        assert "ac:name=\"jira\"" not in out
+
+    def test_date_token_in_inline_code_stays_literal(self):
+        out = md_to_confluence_html("write `{date:2026-01-01}` there")
+        assert "<code>{date:2026-01-01}</code>" in out
+        assert "<time" not in out
+
+    def test_multi_backtick_span_is_protected(self):
+        out = md_to_confluence_html("``a {status:DONE|green} b`` tail")
+        assert "{status:DONE|green}" in out
+        assert "ac:name=\"status\"" not in out
+
+    def test_tokens_still_convert_in_prose(self):
+        out = md_to_confluence_html("{status:DONE|green} {jira:PROJ-1} {date:2026-01-01} ~~x~~")
+        assert 'ac:name="status"' in out
+        assert 'ac:name="jira"' in out
+        assert '<time datetime="2026-01-01"' in out
+        assert "<s>x</s>" in out
+
+    def test_token_after_a_code_span_still_converts(self):
+        out = md_to_confluence_html("`code` then {status:DONE|green}")
+        assert "<code>code</code>" in out
+        assert 'ac:name="status"' in out

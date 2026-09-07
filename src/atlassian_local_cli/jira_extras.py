@@ -323,10 +323,10 @@ def jira_clone(args):
 
 
 def jira_delete(args):
-    jira = create_jira()
     if not args.yes:
         print(f"Refusing to delete {args.issue_key} without --yes.", file=sys.stderr)
         sys.exit(1)
+    jira = create_jira()
     jira.delete_issue(args.issue_key, delete_subtasks=args.cascade)
     print(f"Deleted {args.issue_key}")
 

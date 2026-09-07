@@ -316,10 +316,10 @@ def wiki_update(args):
 
 
 def wiki_delete(args):
-    confluence = create_confluence()
     if not args.yes:
         print(f"Refusing to delete page {args.page_id} without --yes.", file=sys.stderr)
         sys.exit(1)
+    confluence = create_confluence()
     page = confluence.get_page_by_id(args.page_id)
     confluence.remove_page(args.page_id, recursive=args.cascade)
     print(f"Deleted page {args.page_id}: {page['title']}")

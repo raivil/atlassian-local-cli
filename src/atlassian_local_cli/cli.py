@@ -194,9 +194,13 @@ def _context_show(args):
     print(f"WIKI_URL={config.wiki_url}")
     print(f"WIKI_USERNAME={config.wiki_username or '(unset)'}")
     print(f"WIKI_TOKEN={_mask(config.wiki_token)}")
+    if config.wiki_auth:
+        print(f"WIKI_AUTH={config.wiki_auth}")
     print(f"JIRA_URL={config.jira_url or '(unset)'}")
     print(f"JIRA_USERNAME={config.jira_username or '(unset)'}")
     print(f"JIRA_TOKEN={_mask(config.jira_token)}")
+    if config.jira_auth:
+        print(f"JIRA_AUTH={config.jira_auth}")
     if config.jira_epic_name_field:
         print(f"JIRA_EPIC_NAME_FIELD={config.jira_epic_name_field}")
     if config.jira_epic_link_field:

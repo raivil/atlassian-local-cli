@@ -935,10 +935,13 @@ def _escape_unmatched_tags(html):
     return out
 
 
-# Fenced blocks (``` or ~~~) and inline code spans, so pre-parser substitutions
-# can skip them. Python-Markdown has not run yet at that point, so a literal
-# ~~x~~ inside backticks would otherwise be rewritten as real strikethrough.
-_CODE_REGION_RE = re.compile(r"```.*?```|~~~.*?~~~|`[^`\n]*`", re.DOTALL)
+# Fenced blocks and inline code spans. Every substitution that runs before
+# Python-Markdown has to skip these, or a literal {status:...} or ~~x~~ written
+# inside backticks gets rewritten into real markup. Shared with the mention
+# regex below so the two can't drift apart on what counts as code.
+_FENCE_PATTERN = r"```.*?```|~~~.*?~~~"
+_INLINE_CODE_PATTERN = r"`+[^`]*`+"
+_CODE_REGION_RE = re.compile(f"{_FENCE_PATTERN}|{_INLINE_CODE_PATTERN}", re.DOTALL)
 
 
 def _sub_outside_code(pattern, repl, md_text):
@@ -967,17 +970,17 @@ def md_to_confluence_html(md_text):
             f'</ac:structured-macro>'
         )
 
-    md_text = re.sub(r'\{status:([^|]+)\|([^}]+)\}', _replace_status_md, md_text)
+    md_text = _sub_outside_code(r'\{status:([^|]+)\|([^}]+)\}', _replace_status_md, md_text)
 
     # Convert {jira:KEY} to Confluence Jira issue macro
-    md_text = re.sub(
+    md_text = _sub_outside_code(
         r'\{jira:([A-Z]+-\d+)\}',
         r'<ac:structured-macro ac:name="jira"><ac:parameter ac:name="key">\1</ac:parameter></ac:structured-macro>',
         md_text,
     )
 
     # Convert {date:YYYY-MM-DD} to Confluence date element
-    md_text = re.sub(
+    md_text = _sub_outside_code(
         r'\{date:(\d{4}-\d{2}-\d{2})\}',
         r'<time datetime="\1" />',
         md_text,
@@ -1063,8 +1066,8 @@ def md_to_confluence_html(md_text):
         return m.group(0)
 
     md_text = re.sub(
-        r'(?P<fence>```.*?```|~~~.*?~~~)'        # fenced code blocks
-        r'|(?P<inline>`+[^`]*`+)'                # inline code spans
+        f'(?P<fence>{_FENCE_PATTERN})'
+        f'|(?P<inline>{_INLINE_CODE_PATTERN})'
         r'|(?<!["\w@])@(?P<user>\w+)(?![\w/])',  # user mention (not in code, not scoped pkg)
         _convert_mention,
         md_text,

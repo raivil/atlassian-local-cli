@@ -1,5 +1,22 @@
 # Changelog
 
+## v2.12.1 (2026-09-07)
+
+### Fixed
+- `{status:…}`, `{jira:…}` and `{date:…}` were rewritten into macros even inside code, so a page documenting this tool's own syntax could not show its markers literally. All three now run through the same code-region guard v2.12.0 added for `~~`. The guard itself was weaker than the mention regex beside it — it matched only single-backtick spans, missing ``` ``a `b` c`` ``` — so both now share one definition of what counts as code and cannot drift apart.
+- `make wiki-raw` ignored `CONTEXT=<name>`. Its recipe called `uv run atlassian-local-cli` directly instead of `$(CLI)`, so it always used the active context while every other target honoured the override — meaning `make wiki-raw PAGE=… CONTEXT=cloud` silently queried the wrong instance.
+- `wiki-delete` and `jira-delete` built their API client *before* checking `--yes`, so on a context with no token they reported `WIKI_TOKEN is not set` instead of the real problem. Both now refuse first and authenticate second, matching `wiki-comment-delete`.
+- `context show` printed neither `WIKI_AUTH` nor `JIRA_AUTH`, omitting the two keys most worth seeing from the one command whose job is showing resolved config. Both now appear when set.
+- `.PHONY` was missing `wiki-raw`, `wiki-delete` and `context-add`.
+
+### Added
+- `tests/test_project_consistency.py` — asserts every subcommand has a make target and appears in both README and CLAUDE.md, every make target is `.PHONY`, every recipe honours `CONTEXT=`, `.DS_Store` is ignored, and the CHANGELOG documents the version in `pyproject.toml`. Each of these caught a real inconsistency when written; they exist so the next subcommand can't be added without its target and docs.
+- `.DS_Store` added to `.gitignore`; it had been surfacing in every `git status`.
+- `jira-create` and `jira-link-epic` added to the CLAUDE.md command list, which had never listed them.
+
+### Notes
+- `.env.example` still needs a `WIKI_AUTH` line alongside `JIRA_AUTH`; that path is covered by a local permission rule and could not be edited here.
+
 ## v2.12.0 (2026-09-07)
 
 ### Fixed

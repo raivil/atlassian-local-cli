@@ -216,6 +216,32 @@ class TestCliDispatch:
         main()
         assert "JIRA_USERNAME=me@example.com" in capsys.readouterr().out
 
+    def test_context_show_includes_auth_overrides(self, config_root, capsys):
+        """These are the keys you check when auth misbehaves; omitting them from
+        the one command that prints resolved config defeats its purpose."""
+        write_env(
+            config_root / "contexts" / "custom.env",
+            JIRA_URL="https://acme.example.com",
+            JIRA_TOKEN="t",
+            JIRA_AUTH="basic",
+            WIKI_URL="https://docs.example.com",
+            WIKI_TOKEN="w",
+            WIKI_AUTH="bearer",
+        )
+        sys.argv = ["atlassian-local-cli", "context", "show", "custom"]
+        main()
+        out = capsys.readouterr().out
+        assert "WIKI_AUTH=bearer" in out
+        assert "JIRA_AUTH=basic" in out
+
+    def test_context_show_omits_auth_when_unset(self, config_root, capsys):
+        write_env(config_root / "contexts" / "plain.env", JIRA_URL="https://j/", JIRA_TOKEN="t")
+        sys.argv = ["atlassian-local-cli", "context", "show", "plain"]
+        main()
+        out = capsys.readouterr().out
+        assert "JIRA_AUTH" not in out
+        assert "WIKI_AUTH" not in out
+
     def test_context_unset_clears_persisted(self, config_root, capsys):
         write_env(config_root / "contexts" / "work.env", JIRA_TOKEN="w")
         set_current_context("work")

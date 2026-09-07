@@ -1,4 +1,4 @@
-.PHONY: setup build clean test test-cov wiki-export wiki-attachments wiki-comments wiki-comment wiki-comment-delete wiki-update wiki-create jira-create jira-link-epic jira-get jira-my-tasks jira-transition jira-update jira-me jira-open jira-search jira-comment jira-comments jira-link jira-unlink jira-link-types jira-worklog jira-sprints jira-sprint-add jira-sprint-issues jira-clone jira-delete jira-epics jira-epic-issues context-list context-current context-use context-unset context-show
+.PHONY: setup build clean test test-cov wiki-export wiki-attachments wiki-comments wiki-comment wiki-comment-delete wiki-raw wiki-update wiki-create wiki-delete jira-create jira-link-epic jira-get jira-my-tasks jira-transition jira-update jira-me jira-open jira-search jira-comment jira-comments jira-link jira-unlink jira-link-types jira-worklog jira-sprints jira-sprint-add jira-sprint-issues jira-clone jira-delete jira-epics jira-epic-issues context-add context-list context-current context-use context-unset context-show
 
 # All atlassian-local-cli invocations. Pass CONTEXT=<name> on any target
 # to override the active context just for that command.
@@ -24,7 +24,7 @@ wiki-export: ## Export a wiki page. Usage: make wiki-export PAGE=<page_id> [OUTP
 	$(CLI) wiki-export $(PAGE) $(if $(OUTPUT),-o $(OUTPUT)) $(if $(ATTACHMENTS),--attachments)
 
 wiki-raw: ## Dump a wiki page's raw HTML. Usage: make wiki-raw PAGE=<page_id> [FORMAT=storage|export|both] [MACROS=1] [OUTPUT=<file>]
-	@uv run atlassian-local-cli wiki-raw $(PAGE) $(if $(FORMAT),--format $(FORMAT),) $(if $(MACROS),--macros,) $(if $(OUTPUT),-o $(OUTPUT),)
+	@$(CLI) wiki-raw $(PAGE) $(if $(FORMAT),--format $(FORMAT),) $(if $(MACROS),--macros,) $(if $(OUTPUT),-o $(OUTPUT),)
 
 wiki-attachments: ## List or download a wiki page's attachments. Usage: make wiki-attachments PAGE=<page_id> [OUTPUT=<dir>] [MATCH=<glob>] [JSON=1]
 	@if [ -z "$(PAGE)" ]; then echo "Error: PAGE is required."; exit 1; fi
