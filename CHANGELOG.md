@@ -1,5 +1,20 @@
 # Changelog
 
+## v2.11.0 (2026-09-06)
+
+### Added
+- `wiki-export --attachments` (requires `-o`) rewrites the exported markdown's image links from server URLs to bare filenames and downloads exactly those files next to the markdown, so `wiki-export` → edit → `wiki-update` round-trips images instead of losing them. Without the flag, export output is byte-identical to before.
+  - Rewriting and downloading are deliberately coupled. `rewrite_local_images()` leaves a src alone when the file is missing, so rewriting without fetching would upload a relative `<img>` that Confluence cannot resolve — replacing a working absolute URL with a broken image. `--attachments` therefore errors when `-o` is absent, since stdout has no directory to download into.
+  - Images are matched by the `/download/attachments/` or `/download/thumbnails/` marker in the URL path, not by pairing `<img>` order against storage `<ri:attachment>` elements. `export_view` renders emoticons as `<img>` too, and one interleaved emoticon would shift every later pairing. The marker also covers Cloud's `/wiki/download/...` prefix.
+  - A file the page references but does not own — a cross-page `ri:page` reference — is named on stderr rather than skipped silently.
+
+### Fixed
+- `wiki-raw --format export` crashed with `KeyError: 'export'`. The argparse choice was `export` while the body key is `export_view`, so the documented flag never worked; only `--format both` did, because it reads the dict's own keys.
+- `wiki-update` and `wiki-create` now warn when a relative `<img src>` has no file on disk. Previously they uploaded the unresolvable tag in silence, and the broken image only showed up on the page afterwards.
+
+### Changed
+- GitHub Actions bumped off the deprecated Node 20 runtime: `checkout` v4→v7, `setup-python` v5→v7, `upload-artifact` v4→v7, `download-artifact` v4→v8, `setup-uv` v6→v10, `action-gh-release` v2→v3. The `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24` workaround is removed with them, since it existed only to paper over that deprecation.
+
 ## v2.10.0 (2026-09-04)
 
 ### Added

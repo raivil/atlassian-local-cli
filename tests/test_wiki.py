@@ -10,6 +10,7 @@ from atlassian_local_cli.wiki import (
     wiki_create,
     wiki_delete,
     wiki_export,
+    wiki_raw,
     wiki_update,
 )
 
@@ -36,7 +37,7 @@ class TestWikiExport:
         mock_confluence.get_page_by_id.return_value = MOCK_PAGE
         mock_create.return_value = mock_confluence
 
-        wiki_export(Namespace(page_id="12345", output=None))
+        wiki_export(Namespace(page_id="12345", output=None, attachments=False))
         output = capsys.readouterr().out
         assert "# Test Page" in output
         assert "Hello world" in output
@@ -48,7 +49,7 @@ class TestWikiExport:
         mock_create.return_value = mock_confluence
 
         outfile = str(tmp_path / "out.md")
-        wiki_export(Namespace(page_id="12345", output=outfile))
+        wiki_export(Namespace(page_id="12345", output=outfile, attachments=False))
         content = (tmp_path / "out.md").read_text()
         assert "# Test Page" in content
 
@@ -58,7 +59,7 @@ class TestWikiExport:
         mock_confluence.get_page_by_id.return_value = MOCK_PAGE
         mock_create.return_value = mock_confluence
 
-        wiki_export(Namespace(page_id="12345", output=None))
+        wiki_export(Namespace(page_id="12345", output=None, attachments=False))
         output = capsys.readouterr().out
         assert 'page_id: "12345"' in output
         assert "space: DEV" in output
@@ -111,7 +112,7 @@ class TestWikiExportUnsafeTable:
         mock_create.return_value = mock_confluence
 
         outfile = str(tmp_path / "out.md")
-        wiki_export(Namespace(page_id="12345", output=outfile))
+        wiki_export(Namespace(page_id="12345", output=outfile, attachments=False))
         exported_md = (tmp_path / "out.md").read_text()
 
         # The lossy rendered table must NOT appear as editable markdown; it lives in
@@ -162,7 +163,7 @@ class TestWikiExportLongTableCell:
         mock_create.return_value = mock_confluence
 
         outfile = str(tmp_path / "out.md")
-        wiki_export(Namespace(page_id="12345", output=outfile))
+        wiki_export(Namespace(page_id="12345", output=outfile, attachments=False))
         lines = (tmp_path / "out.md").read_text().splitlines()
 
         row1_lines = [line for line in lines if "Row1" in line]
@@ -471,7 +472,7 @@ class TestPageUrlBase:
         confluence.get_page_by_id.return_value = MOCK_PAGE
         mock_create.return_value = confluence
 
-        wiki_export(Namespace(page_id="12345", output=None))
+        wiki_export(Namespace(page_id="12345", output=None, attachments=False))
 
         assert "url: https://valr-br.atlassian.net/wiki/pages/viewpage.action?pageId=12345" in capsys.readouterr().out
 
@@ -482,7 +483,7 @@ class TestPageUrlBase:
         confluence.get_page_by_id.return_value = MOCK_PAGE
         mock_create.return_value = confluence
 
-        wiki_export(Namespace(page_id="12345", output=None))
+        wiki_export(Namespace(page_id="12345", output=None, attachments=False))
 
         assert "url: https://wiki.test.com/pages/viewpage.action?pageId=12345" in capsys.readouterr().out
 
@@ -498,3 +499,121 @@ class TestPageUrlBase:
         wiki_create(Namespace(space="DEV", title="T", input_file=str(md_file), parent=None))
 
         assert "https://valr-br.atlassian.net/wiki/pages/viewpage.action?pageId=99999" in capsys.readouterr().out
+
+
+IMAGE_PAGE = {
+    **MOCK_PAGE,
+    "body": {
+        "export_view": {"value": '<p><img src="https://wiki.test.com/download/attachments/12345/pic.png?api=v2" alt="sq" /></p>'},
+        "storage": {"value": '<p><ac:image ac:alt="sq"><ri:attachment ri:filename="pic.png" /></ac:image></p>'},
+    },
+}
+
+
+class TestWikiExportAttachments:
+    @staticmethod
+    def _client(attachments, bodies):
+        confluence = MagicMock()
+        confluence.url = "https://wiki.test.com/"
+        confluence.get_page_by_id.return_value = IMAGE_PAGE
+        confluence.get_attachments_from_content.return_value = _page(attachments)
+        confluence.get.side_effect = lambda url, **kwargs: bodies[url]
+        return confluence
+
+    @patch("atlassian_local_cli.wiki.create_confluence")
+    def test_requires_output_directory(self, mock_create, capsys):
+        mock_create.return_value = self._client([], {})
+
+        with pytest.raises(SystemExit):
+            wiki_export(Namespace(page_id="12345", output=None, attachments=True))
+
+        assert "--attachments" in capsys.readouterr().err
+
+    @patch("atlassian_local_cli.wiki.create_confluence")
+    def test_rewrites_links_and_downloads_only_referenced_files(self, mock_create, tmp_path):
+        mock_create.return_value = self._client(
+            [_attachment("pic.png", download="/dl/pic"), _attachment("unrelated.txt", download="/dl/txt")],
+            {"/dl/pic": b"PNGDATA"},
+        )
+
+        out = tmp_path / "page.md"
+        wiki_export(Namespace(page_id="12345", output=str(out), attachments=True))
+
+        assert "![sq](pic.png)" in out.read_text()
+        assert (tmp_path / "pic.png").read_bytes() == b"PNGDATA"
+        assert not (tmp_path / "unrelated.txt").exists()
+
+    @patch("atlassian_local_cli.wiki.create_confluence")
+    def test_without_the_flag_links_stay_absolute(self, mock_create, tmp_path):
+        confluence = self._client([], {})
+        mock_create.return_value = confluence
+
+        out = tmp_path / "page.md"
+        wiki_export(Namespace(page_id="12345", output=str(out), attachments=False))
+
+        assert "https://wiki.test.com/download/attachments/12345/pic.png" in out.read_text()
+        confluence.get_attachments_from_content.assert_not_called()
+
+    @patch("atlassian_local_cli.wiki.create_confluence")
+    def test_reports_referenced_files_that_are_not_attachments(self, mock_create, tmp_path, capsys):
+        mock_create.return_value = self._client([], {})
+
+        out = tmp_path / "page.md"
+        wiki_export(Namespace(page_id="12345", output=str(out), attachments=True))
+
+        assert "pic.png" in capsys.readouterr().err
+
+
+class TestWikiUpdateMissingImages:
+    @patch("atlassian_local_cli.wiki.create_confluence")
+    def test_warns_when_a_local_image_has_no_file(self, mock_create, tmp_path, capsys):
+        confluence = MagicMock()
+        confluence.get_page_by_id.return_value = {"title": "P", "version": {"number": 1}}
+        mock_create.return_value = confluence
+
+        md = tmp_path / "in.md"
+        md.write_text("# T\n\n![x](missing.png)\n")
+        wiki_update(Namespace(page_id="12345", input_file=str(md)))
+
+        err = capsys.readouterr().err
+        assert "missing.png" in err
+        confluence.update_page.assert_called_once()
+
+    @patch("atlassian_local_cli.wiki.create_confluence")
+    def test_does_not_warn_for_external_images(self, mock_create, tmp_path, capsys):
+        confluence = MagicMock()
+        confluence.get_page_by_id.return_value = {"title": "P", "version": {"number": 1}}
+        mock_create.return_value = confluence
+
+        md = tmp_path / "in.md"
+        md.write_text("# T\n\n![x](https://example.com/logo.png)\n")
+        wiki_update(Namespace(page_id="12345", input_file=str(md)))
+
+        assert capsys.readouterr().err == ""
+
+    @patch("atlassian_local_cli.wiki.create_confluence")
+    def test_create_warns_too(self, mock_create, tmp_path, capsys):
+        confluence = MagicMock()
+        confluence.url = "https://wiki.test.com/"
+        confluence.create_page.return_value = {"id": "999"}
+        mock_create.return_value = confluence
+
+        md = tmp_path / "in.md"
+        md.write_text("# T\n\n![x](gone.png)\n")
+        wiki_create(Namespace(space="DEV", title="T", input_file=str(md), parent=None))
+
+        assert "gone.png" in capsys.readouterr().err
+
+
+class TestWikiRawFormat:
+    @patch("atlassian_local_cli.wiki.create_confluence")
+    def test_format_export_returns_the_rendered_body(self, mock_create, capsys):
+        confluence = MagicMock()
+        confluence.get_page_by_id.return_value = MOCK_PAGE
+        mock_create.return_value = confluence
+
+        wiki_raw(Namespace(page_id="12345", format="export", macros=False, output=None))
+
+        out = capsys.readouterr().out
+        assert "export_view" in out
+        assert "Hello world" in out

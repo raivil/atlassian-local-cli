@@ -19,9 +19,9 @@ test: ## Run tests
 test-cov: ## Run tests with coverage report
 	uv run pytest --cov=atlassian_local_cli --cov-report=term-missing --cov-report=html
 
-wiki-export: ## Export a wiki page. Usage: make wiki-export PAGE=<page_id> [OUTPUT=<file.md>]
+wiki-export: ## Export a wiki page. Usage: make wiki-export PAGE=<page_id> [OUTPUT=<file.md>] [ATTACHMENTS=1]
 	@if [ -z "$(PAGE)" ]; then echo "Error: PAGE is required."; exit 1; fi
-	$(CLI) wiki-export $(PAGE) $(if $(OUTPUT),-o $(OUTPUT))
+	$(CLI) wiki-export $(PAGE) $(if $(OUTPUT),-o $(OUTPUT)) $(if $(ATTACHMENTS),--attachments)
 
 wiki-raw: ## Dump a wiki page's raw HTML. Usage: make wiki-raw PAGE=<page_id> [FORMAT=storage|export|both] [MACROS=1] [OUTPUT=<file>]
 	@uv run atlassian-local-cli wiki-raw $(PAGE) $(if $(FORMAT),--format $(FORMAT),) $(if $(MACROS),--macros,) $(if $(OUTPUT),-o $(OUTPUT),)

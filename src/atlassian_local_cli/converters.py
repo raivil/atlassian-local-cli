@@ -1,6 +1,7 @@
 import os
 import re
 from collections import defaultdict
+from urllib.parse import unquote, urlsplit
 
 import html2text
 import markdown as md_lib
@@ -707,6 +708,38 @@ def rewrite_local_images(html, base_dir):
 
     html = re.sub(r'<img\b[^>]*/?>', _rewrite, html)
     return html, images
+
+
+ATTACHMENT_URL_MARKERS = ("/download/attachments/", "/download/thumbnails/")
+
+
+def rewrite_attachment_images(html):
+    """Point <img> tags at bare attachment filenames instead of server URLs.
+
+    Returns (rewritten_html, [filename, ...]) so the caller can fetch the files
+    that the markdown now expects to sit beside it. Matching is on the URL
+    marker rather than by correlating <img> order against storage
+    <ri:attachment> elements: export_view renders emoticons as <img> too, and
+    one interleaved emoticon would shift every later pairing.
+    """
+    names = []
+
+    def _rewrite(m):
+        tag = m.group(0)
+        src_match = re.search(r'src="([^"]+)"', tag)
+        if not src_match:
+            return tag
+        path = urlsplit(src_match.group(1)).path
+        if not any(marker in path for marker in ATTACHMENT_URL_MARKERS):
+            return tag
+        filename = unquote(os.path.basename(path))
+        if not filename:
+            return tag
+        if filename not in names:
+            names.append(filename)
+        return tag.replace(src_match.group(0), f'src="{filename}"')
+
+    return re.sub(r'<img\b[^>]*/?>', _rewrite, html), names
 
 
 def parse_directive_params(param_str):

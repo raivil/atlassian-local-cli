@@ -15,6 +15,7 @@ from .converters import (
     md_to_confluence_html,
     postprocess_export_md,
     preprocess_export_html,
+    rewrite_attachment_images,
     rewrite_local_images,
     serialize_passthrough_footer,
     strip_frontmatter_and_title,
@@ -29,6 +30,10 @@ def _page_url(confluence, page_id):
 
 
 def wiki_export(args):
+    if args.attachments and not args.output:
+        print("Error: --attachments needs -o/--output; there is no directory to download into.", file=sys.stderr)
+        sys.exit(1)
+
     confluence = create_confluence()
     page = confluence.get_page_by_id(args.page_id, expand="body.export_view,body.storage,version,space,history")
 
@@ -54,6 +59,10 @@ def wiki_export(args):
         export_html, storage_html, start_counter=len(passthrough_mapping)
     )
     passthrough_mapping = {**passthrough_mapping, **unsafe_table_mapping}
+
+    referenced_files = []
+    if args.attachments:
+        export_html, referenced_files = rewrite_attachment_images(export_html)
 
     html_content = preprocess_export_html(export_html)
     h = html2text.HTML2Text()
@@ -94,6 +103,14 @@ def wiki_export(args):
     else:
         print(content)
 
+    if args.attachments:
+        _download_referenced_attachments(
+            confluence, args.page_id, referenced_files, os.path.dirname(args.output) or "."
+        )
+
+
+RAW_FORMAT_BODIES = {"storage": "storage", "export": "export_view"}
+
 
 def wiki_raw(args):
     """Dump a page's unconverted HTML. Use this when an export fails, hangs or loses
@@ -105,7 +122,7 @@ def wiki_raw(args):
         "storage": page["body"]["storage"]["value"],
         "export_view": page["body"]["export_view"]["value"],
     }
-    wanted = list(bodies) if args.format == "both" else [args.format]
+    wanted = list(bodies) if args.format == "both" else [RAW_FORMAT_BODIES[args.format]]
 
     if args.macros:
         from .converters import _find_top_level_macros
@@ -240,6 +257,39 @@ def wiki_attachments(args):
     print(f"{len(attachments)} attachment{plural}, {_human_size(total)} total")
 
 
+def _download_referenced_attachments(confluence, page_id, filenames, directory):
+    """Fetch the attachments the rewritten markdown now points at. Anything the
+    page references but does not own — a cross-page ri:page reference — is named
+    rather than skipped silently, since wiki-update would upload a dead link."""
+    if not filenames:
+        return
+
+    available = {}
+    for attachment in _iter_attachments(confluence, page_id):
+        summary = _attachment_summary(attachment)
+        available[summary["title"]] = summary
+
+    found = [available[name] for name in filenames if name in available]
+    if found:
+        _download_attachments(confluence, found, directory)
+    for name in filenames:
+        if name not in available:
+            print(f"  Warning: {name} is referenced by the page but is not an attachment of it.", file=sys.stderr)
+
+
+def _warn_unresolved_images(html):
+    """A relative <img src> that survived rewrite_local_images had no file on
+    disk. Confluence cannot resolve a relative path, so the upload would replace
+    a working image with a broken one — say so rather than doing it quietly."""
+    for tag in re.findall(r"<img\b[^>]*>", html):
+        src = re.search(r'src="([^"]+)"', tag)
+        if src and not src.group(1).startswith(("http://", "https://", "//", "data:", "/")):
+            print(
+                f"  Warning: {src.group(1)} not found on disk; the page will show a broken image.",
+                file=sys.stderr,
+            )
+
+
 def _upload_attachments(confluence, page_id, images):
     for filename, abs_path in images:
         confluence.attach_file(abs_path, page_id=page_id, name=filename)
@@ -254,6 +304,7 @@ def wiki_update(args):
     html_content = md_to_confluence_html(md_text)
     base_dir = os.path.dirname(os.path.abspath(args.input_file))
     html_content, images = rewrite_local_images(html_content, base_dir)
+    _warn_unresolved_images(html_content)
 
     confluence = create_confluence()
     page = confluence.get_page_by_id(args.page_id, expand="version")
@@ -282,6 +333,7 @@ def wiki_create(args):
     html_content = md_to_confluence_html(md_text)
     base_dir = os.path.dirname(os.path.abspath(args.input_file))
     html_content, images = rewrite_local_images(html_content, base_dir)
+    _warn_unresolved_images(html_content)
 
     confluence = create_confluence()
     result = confluence.create_page(

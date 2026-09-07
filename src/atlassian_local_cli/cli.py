@@ -253,6 +253,8 @@ def main():
     p = subparsers.add_parser("wiki-export", help="Export a Confluence page to Markdown")
     p.add_argument("page_id", help="Confluence page ID")
     p.add_argument("-o", "--output", help="Output file (prints to stdout if omitted)")
+    p.add_argument("--attachments", action="store_true",
+                   help="Rewrite image links to local filenames and download them next to the file (needs -o)")
     p.set_defaults(func=wiki_export)
 
     p = subparsers.add_parser("wiki-comments", help="List a page's comments")

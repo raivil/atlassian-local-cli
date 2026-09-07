@@ -16,6 +16,7 @@ from atlassian_local_cli.converters import (
     postprocess_export_md,
     preprocess_export_html,
     restore_passthrough_blocks,
+    rewrite_attachment_images,
     rewrite_local_images,
     serialize_passthrough_footer,
     strip_frontmatter_and_title,
@@ -1144,3 +1145,56 @@ class TestFindTopLevelMacros:
     def test_unclosed_macro_terminates(self):
         # Malformed input must not wedge the exporter.
         self._run('<ac:structured-macro ac:name="broken"><ac:rich-text-body><p>x</p>')
+
+
+class TestRewriteAttachmentImages:
+    def test_rewrites_attachment_url_to_bare_filename(self):
+        html = '<p><img src="https://wiki.test.com/download/attachments/12345/pic.png?api=v2" alt="sq" /></p>'
+        out, names = rewrite_attachment_images(html)
+        assert 'src="pic.png"' in out
+        assert 'alt="sq"' in out
+        assert names == ["pic.png"]
+
+    def test_rewrites_thumbnail_url(self):
+        html = '<img src="https://wiki.test.com/download/thumbnails/12345/chart.png" />'
+        out, names = rewrite_attachment_images(html)
+        assert 'src="chart.png"' in out
+        assert names == ["chart.png"]
+
+    def test_decodes_percent_encoded_filenames(self):
+        html = '<img src="https://wiki.test.com/download/attachments/12345/my%20chart%20v2.png?api=v2" />'
+        out, names = rewrite_attachment_images(html)
+        assert 'src="my chart v2.png"' in out
+        assert names == ["my chart v2.png"]
+
+    def test_handles_cloud_wiki_prefix(self):
+        html = '<img src="https://site.atlassian.net/wiki/download/attachments/425986/pic.png" />'
+        out, names = rewrite_attachment_images(html)
+        assert 'src="pic.png"' in out
+        assert names == ["pic.png"]
+
+    def test_leaves_emoticons_alone(self):
+        html = '<img src="https://wiki.test.com/s/-874/6452/_/images/icons/emoticons/72/1f5d3.png" />'
+        out, names = rewrite_attachment_images(html)
+        assert out == html
+        assert names == []
+
+    def test_leaves_external_and_data_urls_alone(self):
+        html = ('<img src="https://example.com/logo.png" />'
+                '<img src="data:image/png;base64,iVBORw0KGgo=" />')
+        out, names = rewrite_attachment_images(html)
+        assert out == html
+        assert names == []
+
+    def test_reports_each_referenced_file_once(self):
+        html = ('<img src="https://wiki.test.com/download/attachments/1/a.png" />'
+                '<img src="https://wiki.test.com/download/attachments/1/a.png" />'
+                '<img src="https://wiki.test.com/download/attachments/1/b.png" />')
+        _, names = rewrite_attachment_images(html)
+        assert names == ["a.png", "b.png"]
+
+    def test_ignores_img_without_src(self):
+        html = "<img />"
+        out, names = rewrite_attachment_images(html)
+        assert out == html
+        assert names == []

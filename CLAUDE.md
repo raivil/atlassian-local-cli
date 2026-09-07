@@ -15,7 +15,7 @@ make test-cov                                               # Run tests with cov
 uv run pytest tests/test_converters.py::TestMdToConfluenceHtml::test_status_badge  # Run a single test
 make build                                                  # Build standalone binary (PyInstaller)
 make clean                                                  # Remove build artifacts
-make wiki-export PAGE=<id> [OUTPUT=out.md]                  # Export Confluence page
+make wiki-export PAGE=<id> [OUTPUT=out.md] [ATTACHMENTS=1]  # Export Confluence page
 make wiki-update PAGE=<id> INPUT=<file.md>                  # Update Confluence page
 make wiki-attachments PAGE=<id> [OUTPUT=<dir>]              # List or download page attachments
 make wiki-comments PAGE=<id> [LOCATION=footer] [JSON=1]     # List page comments
@@ -105,6 +105,8 @@ Python package in `src/atlassian_local_cli/` with `main.py` as a backward-compat
   - Passthrough (`extract_unknown_macros`) now also captures legacy top-level `<ac:macro>` elements (`_find_legacy_macros`) so older macros aren't silently dropped. `details`/`detailssummary` are in `KNOWN_MACRO_TYPES` so they're handled by the dedicated logic above, not the generic footer. (Truly arbitrary unknown macros still duplicate on export — there is no reliable anchor for them in `export_view`.)
   - `strip_frontmatter_and_title()` — strips YAML frontmatter and `# Title` heading from markdown before upload
 - **`wiki.py`** — `_page_url()` builds page links from the *client's* base URL, not `WIKI_URL`: Cloud serves Confluence under `/wiki`, which `Confluence.__init__` appends (along with `cloud=True`) but `WIKI_URL` never carries. Using `WIKI_URL` made exported frontmatter URLs and `wiki-create` output 404 on Cloud.
+- **`wiki.py`** — `wiki-export --attachments` (requires `-o`) rewrites image links to bare filenames via `rewrite_attachment_images()` and downloads just those files beside the markdown, so `wiki-export` → `wiki-update` round-trips images. Rewriting without downloading is *worse* than not rewriting: `rewrite_local_images()` skips a src whose file is missing, so the upload would carry a relative `<img>` Confluence can't resolve — hence the two are coupled and `--attachments` errors without `-o`. A referenced file that isn't an attachment of this page (cross-page `ri:page` reference) is named on stderr.
+- **`wiki.py`** — `_warn_unresolved_images()` warns on update *and* create when a relative `<img src>` has no file on disk, so that failure is loud instead of silently uploading a broken image.
 - **`wiki.py`** — export prepends YAML frontmatter (page_id, space, version, author, dates, url) and `# Title`; update/create strip both before uploading. Export replaces Page Properties / Report output with editable directives (token placeholders substituted after html2text)
   - `wiki-attachments` lists a page's attachments, or downloads them with `-o <dir>` (`--match <glob>` filters, `--json` for scripting). Attachments referenced by the page body are *not* rewritten to local paths on export, so `wiki-export` → `wiki-update` still doesn't round-trip them.
   - `_iter_attachments()` pages through `get_attachments_from_content` 50 at a time. The library's own `download_attachments_from_page` never pages past the first batch, silently dropping files 51+, which is why it isn't used.

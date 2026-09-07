@@ -146,6 +146,7 @@ It writes `0600` files and refuses to overwrite an existing context without
 # Export a page to markdown
 atlassian-local-cli wiki-export 12345
 atlassian-local-cli wiki-export 12345 -o page.md
+atlassian-local-cli wiki-export 12345 -o page.md --attachments   # images round-trip
 
 # Update a page from a markdown file
 atlassian-local-cli wiki-update 12345 page.md
@@ -182,6 +183,14 @@ atlassian-local-cli wiki-raw 12345 --macros              # list top-level macros
 Exported files carry YAML frontmatter (page ID, space, version, author, dates,
 URL) and a `# Title` heading. Both are stripped automatically on update and
 create, so an exported file can be edited and pushed straight back.
+
+`--attachments` rewrites the exported image links from server URLs to bare
+filenames and downloads those files next to the markdown, so the page survives
+`wiki-export` → edit → `wiki-update` with its images intact. It needs `-o`,
+because stdout has no directory to download into. Without the flag, export is
+unchanged and image links stay absolute. A file the page references but doesn't
+own is named on stderr rather than skipped quietly, and `wiki-update` warns
+before uploading an image whose file is missing from disk.
 
 `wiki-comment` bodies are markdown and go through the same converter as
 `wiki-update`, so lists, code blocks and `**bold**` render properly on the page.
@@ -403,7 +412,7 @@ make test-cov                                               # Run tests with cov
 make build                                                  # Build standalone binary
 make clean                                                  # Remove build artifacts
 
-make wiki-export PAGE=12345 OUTPUT=page.md
+make wiki-export PAGE=12345 OUTPUT=page.md ATTACHMENTS=1
 make wiki-update PAGE=12345 INPUT=page.md
 make wiki-attachments PAGE=12345 OUTPUT=./attachments MATCH='*.sql'
 make wiki-comments PAGE=12345 LOCATION=footer

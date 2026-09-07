@@ -73,3 +73,17 @@ class TestCliParsing:
         args = mock_handler.call_args[0][0]
         assert args.comment_id == "9001"
         assert args.yes is True
+
+    @patch("atlassian_local_cli.cli.wiki_export")
+    def test_wiki_export_attachments_flag(self, mock_handler):
+        sys.argv = ["atlassian-local-cli", "wiki-export", "12345", "-o", "p.md", "--attachments"]
+        main()
+        args = mock_handler.call_args[0][0]
+        assert args.output == "p.md"
+        assert args.attachments is True
+
+    @patch("atlassian_local_cli.cli.wiki_export")
+    def test_wiki_export_attachments_defaults_off(self, mock_handler):
+        sys.argv = ["atlassian-local-cli", "wiki-export", "12345"]
+        main()
+        assert mock_handler.call_args[0][0].attachments is False
