@@ -61,3 +61,20 @@ def test_changelog_documents_the_current_version():
     version = re.search(r'^version = "([^"]+)"', (ROOT / "pyproject.toml").read_text(), re.M).group(1)
     latest = re.search(r"^## v([0-9.]+)", (ROOT / "CHANGELOG.md").read_text(), re.M).group(1)
     assert latest == version
+
+
+CONFIG_SOURCE = (ROOT / "src" / "atlassian_local_cli" / "config.py").read_text()
+ENV_KEYS = sorted(set(re.findall(r'\bget\("([A-Z_]+)"', CONFIG_SOURCE)))
+
+
+def test_config_reads_at_least_the_known_keys():
+    """Sanity check on the parse above, so the next test can't pass vacuously."""
+    assert {"WIKI_URL", "WIKI_TOKEN", "JIRA_TOKEN", "WIKI_AUTH", "JIRA_AUTH"} <= set(ENV_KEYS)
+
+
+def test_every_env_key_is_documented_in_the_example():
+    """WIKI_AUTH shipped in v2.10.0 and went undocumented until v2.12.1, because
+    nothing tied load_config's keys to the file users copy from."""
+    example = (ROOT / ".env.example").read_text()
+    missing = [key for key in ENV_KEYS if key not in example]
+    assert missing == [], f"undocumented in .env.example: {missing}"

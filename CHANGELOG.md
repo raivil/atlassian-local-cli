@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.12.2 (2026-09-07)
+
+### Fixed
+- `.env.example` documents every key `load_config()` reads. `WIKI_AUTH` had been undocumented since v2.10.0, and `JIRA_EPIC_NAME_FIELD` / `JIRA_EPIC_LINK_FIELD` since they were introduced — all three settable, none discoverable from the file users copy when setting up a context.
+
+### Added
+- A consistency check tying `load_config()`'s env keys to `.env.example`, so a new setting cannot ship undocumented. It found the two epic-field keys immediately; only `WIKI_AUTH` was known when it was written. It reports key names rather than file contents, and is paired with a check that its own key-extraction regex actually matches something — a parse that silently found nothing would make the real assertion pass vacuously.
+
 ## v2.12.1 (2026-09-07)
 
 ### Fixed
