@@ -35,6 +35,8 @@ make jira-open ISSUE=<key>                                  # Open issue in brow
 make jira-search [JQL=...] [ASSIGNEE=me] [PROJECT=...]      # Search Jira with JQL/filters
 make jira-comment ISSUE=<key> BODY="..."                    # Add a comment
 make jira-comments ISSUE=<key>                              # List comments
+make jira-comment-update ISSUE=<key> COMMENT=<id> BODY="..." # Replace a comment body
+make jira-comment-delete ISSUE=<key> COMMENT=<id> YES=1     # Delete a comment
 make jira-link FROM=<key> TO=<key> TYPE=Blocks              # Link two issues
 make jira-unlink LINK_ID=<id>                               # Remove a link
 make jira-link-types                                        # List link types
@@ -123,7 +125,7 @@ Python package in `src/atlassian_local_cli/` with `main.py` as a backward-compat
 - **`jira_commands.py`** — `build_jql()` constructs JQL from filter params; `jira-my-tasks` supports `--json` for integrations; `jira-transition` matches by status name (case-insensitive) or transition ID, then posts the resolved id via `set_issue_status_by_transition_id` (the library's `issue_transition`/`set_issue_status` re-resolve the arg as a *status name* and crash on our int id). `--resolution "Won't Do"` sets a resolution during the transition (validated case-insensitively against `get_all_resolutions`, posted as a `fields.resolution` payload; only works on transitions whose screen includes the resolution field); `jira-update` patches individual attributes (summary/description/priority/assignee/type/labels/epic/raw fields). `--label` replaces, `--add-label`/`--remove-label` mutate; pass `--field key=value` with JSON parsing for raw custom fields. Pass `--assignee none` or `--epic none` to clear.
 - **`jira_extras.py`** — additional commands inspired by `ankitpokhrel/jira-cli`:
   - `jira-me`, `jira-open` (uses `webbrowser`), `jira-search` (rich JQL + filters, `--csv`/`--json`/`--order-by`/`--reverse`; `--jql` and filters AND together)
-  - `jira-comment` / `jira-comments` (add + list comments; `--body` or `--body-file -`)
+  - `jira-comment` / `jira-comments` / `jira-comment-update` / `jira-comment-delete` (add, list, replace and remove comments; `--body` or `--body-file -`). Update and delete both read the comment first via `issue_get_comment` and echo it: an edit in Jira leaves no user-visible copy of the previous body, so the printed one is all that survives, and an id that isn't on this issue becomes a message instead of a raw 404. `--no-notify` maps to the edit endpoint's `notifyUsers=false` (the library defaults it to true, so a typo fix would otherwise email every watcher). Delete requires `--yes`, refuses before building the client, and issues a raw `DELETE` on `{resource_url}/issue/{key}/comment/{id}` — the library has no delete-comment method.
   - `jira-link` / `jira-unlink` / `jira-link-types` (generic `create_issue_link` with inward/outward keys)
   - `jira-worklog` — `parse_time_spec()` parses Jira time strings (`"1w 2d 3h 30m"`) using `1w=5d, 1d=8h`; bare integers are minutes
   - `jira-sprints` / `jira-sprint-add` / `jira-sprint-issues` (uses Agile API via `get_all_sprints_from_board`/`add_issues_to_sprint`/`get_sprint_issues`)

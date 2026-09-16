@@ -31,6 +31,8 @@ from .jira_commands import (
 from .jira_extras import (
     jira_clone,
     jira_comment,
+    jira_comment_delete,
+    jira_comment_update,
     jira_comments,
     jira_delete,
     jira_epic_issues,
@@ -402,6 +404,20 @@ def main():
     p.add_argument("issue_key", help="Issue key (e.g. PROJ-123)")
     p.add_argument("--json", action="store_true", help="Output as JSON")
     p.set_defaults(func=jira_comments)
+
+    p = subparsers.add_parser("jira-comment-update", help="Replace the body of a Jira comment")
+    p.add_argument("issue_key", help="Issue key (e.g. PROJ-123)")
+    p.add_argument("comment_id", help="Comment ID (from jira-comments)")
+    p.add_argument("--body", help="Inline replacement body")
+    p.add_argument("--body-file", help="Read the replacement from a file (use '-' for stdin)")
+    p.add_argument("--no-notify", action="store_true", help="Do not email watchers about the edit")
+    p.set_defaults(func=jira_comment_update)
+
+    p = subparsers.add_parser("jira-comment-delete", help="Delete a Jira comment")
+    p.add_argument("issue_key", help="Issue key (e.g. PROJ-123)")
+    p.add_argument("comment_id", help="Comment ID (from jira-comments)")
+    p.add_argument("--yes", action="store_true", help="Confirm deletion (required)")
+    p.set_defaults(func=jira_comment_delete)
 
     p = subparsers.add_parser("jira-link", help="Link two Jira issues with a relation type")
     p.add_argument("from_issue", help="Inward (source) issue key")

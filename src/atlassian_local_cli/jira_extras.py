@@ -6,6 +6,8 @@ import sys
 import webbrowser
 from datetime import datetime, timezone
 
+from requests.exceptions import HTTPError
+
 from .clients import create_jira
 from .config import get_config
 from .text_input import resolve_body
@@ -167,11 +169,65 @@ def jira_comments(args):
         return
 
     for c in comments:
-        author = (c.get("author") or {}).get("displayName", "Unknown")
-        created = c.get("created", "")
-        print(f"--- {author} @ {created} (id: {c.get('id')}) ---")
+        print(_comment_header(c))
         print(c.get("body", "").rstrip())
         print()
+
+
+def _comment_header(comment):
+    author = (comment.get("author") or {}).get("displayName", "Unknown")
+    return f"--- {author} @ {comment.get('created', '')} (id: {comment.get('id')}) ---"
+
+
+def _fetch_comment(jira, issue_key, comment_id):
+    """Read the comment before writing over or deleting it, so the caller sees
+    the text they are about to destroy. An id that is not on this issue raises
+    rather than returning empty, which reached the user as a traceback."""
+    try:
+        comment = jira.issue_get_comment(issue_key, comment_id)
+    except HTTPError as e:
+        print(f"Error: cannot read comment {comment_id} on {issue_key}: {e}", file=sys.stderr)
+        sys.exit(1)
+    if not comment:
+        print(f"Error: no comment {comment_id} on {issue_key}.", file=sys.stderr)
+        sys.exit(1)
+    return comment
+
+
+def _echo_comment(label, comment):
+    print(f"{label}:")
+    print(_comment_header(comment))
+    print((comment.get("body") or "").rstrip())
+    print()
+
+
+def jira_comment_update(args):
+    body = resolve_body(args.body, args.body_file)
+    if not body:
+        print("Error: comment body is required (--body or --body-file).", file=sys.stderr)
+        sys.exit(1)
+
+    jira = create_jira()
+    # An edited comment shows only its new text in Jira, so read the old body
+    # first: the echo below is all that survives of it.
+    existing = _fetch_comment(jira, args.issue_key, args.comment_id)
+    jira.issue_edit_comment(args.issue_key, args.comment_id, body, notify_users=not args.no_notify)
+    _echo_comment("Replaced body", existing)
+    print(f"Updated comment {args.comment_id} on {args.issue_key}")
+
+
+def jira_comment_delete(args):
+    if not args.yes:
+        print(f"Refusing to delete comment {args.comment_id} without --yes.", file=sys.stderr)
+        sys.exit(1)
+
+    jira = create_jira()
+    existing = _fetch_comment(jira, args.issue_key, args.comment_id)
+    # The library has no delete-comment method, so issue the request directly.
+    base_url = jira.resource_url("issue")
+    jira.delete(f"{base_url}/{args.issue_key}/comment/{args.comment_id}")
+    _echo_comment("Deleted body", existing)
+    print(f"Deleted comment {args.comment_id} from {args.issue_key}")
 
 
 def jira_link(args):

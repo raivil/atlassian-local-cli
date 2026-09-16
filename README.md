@@ -278,10 +278,20 @@ cat notes.md | atlassian-local-cli jira-comment PROJ-123 --body-file -
 atlassian-local-cli jira-comments PROJ-123
 atlassian-local-cli jira-comments PROJ-123 --json
 
+# Edit and delete comments (IDs come from jira-comments)
+atlassian-local-cli jira-comment-update PROJ-123 10042 --body "Corrected"
+atlassian-local-cli jira-comment-update PROJ-123 10042 --body "Typo fix" --no-notify
+atlassian-local-cli jira-comment-delete PROJ-123 10042 --yes
+
 # Log work (Jira time format: 1w=5d, 1d=8h)
 atlassian-local-cli jira-worklog PROJ-123 --time "2h 30m" --comment "Pairing"
 atlassian-local-cli jira-worklog PROJ-123 --time "1d"
 ```
+
+`jira-comment-update` replaces the whole body and prints the body it replaced —
+Jira shows only the new text after an edit, so that output is the only remaining
+copy of the old one. `--no-notify` skips the watcher email. `jira-comment-delete`
+prints the comment before removing it and requires `--yes`.
 
 #### Links and epics
 
@@ -444,6 +454,8 @@ make jira-clone ISSUE=PROJ-123 REPLACE="Q1:Q2"
 make jira-delete ISSUE=PROJ-123 YES=1
 make jira-comment ISSUE=PROJ-123 BODY="LGTM"
 make jira-comments ISSUE=PROJ-123
+make jira-comment-update ISSUE=PROJ-123 COMMENT=10042 BODY="Corrected"
+make jira-comment-delete ISSUE=PROJ-123 COMMENT=10042 YES=1
 make jira-worklog ISSUE=PROJ-123 TIME="2h 30m"
 make jira-link FROM=PROJ-1 TO=PROJ-2 TYPE=Blocks
 make jira-unlink LINK_ID=10042

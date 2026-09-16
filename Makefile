@@ -1,4 +1,4 @@
-.PHONY: setup build clean test test-cov wiki-export wiki-attachments wiki-comments wiki-comment wiki-comment-delete wiki-raw wiki-update wiki-create wiki-delete jira-create jira-link-epic jira-get jira-my-tasks jira-transition jira-update jira-me jira-open jira-search jira-comment jira-comments jira-link jira-unlink jira-link-types jira-worklog jira-sprints jira-sprint-add jira-sprint-issues jira-clone jira-delete jira-epics jira-epic-issues context-add context-list context-current context-use context-unset context-show
+.PHONY: setup build clean test test-cov wiki-export wiki-attachments wiki-comments wiki-comment wiki-comment-delete wiki-raw wiki-update wiki-create wiki-delete jira-create jira-link-epic jira-get jira-my-tasks jira-transition jira-update jira-me jira-open jira-search jira-comment jira-comments jira-comment-update jira-comment-delete jira-link jira-unlink jira-link-types jira-worklog jira-sprints jira-sprint-add jira-sprint-issues jira-clone jira-delete jira-epics jira-epic-issues context-add context-list context-current context-use context-unset context-show
 
 # All atlassian-local-cli invocations. Pass CONTEXT=<name> on any target
 # to override the active context just for that command.
@@ -111,6 +111,17 @@ jira-comment: ## Add a comment. Usage: make jira-comment ISSUE=<key> BODY="<text
 jira-comments: ## List comments. Usage: make jira-comments ISSUE=<key>
 	@if [ -z "$(ISSUE)" ]; then echo "Error: ISSUE is required."; exit 1; fi
 	$(CLI) jira-comments $(ISSUE) $(if $(JSON),--json)
+
+jira-comment-update: ## Replace a comment body. Usage: make jira-comment-update ISSUE=<key> COMMENT=<id> BODY="<text>" | BODY_FILE=<file> [NO_NOTIFY=1]
+	@if [ -z "$(ISSUE)" ]; then echo "Error: ISSUE is required."; exit 1; fi
+	@if [ -z "$(COMMENT)" ]; then echo "Error: COMMENT is required."; exit 1; fi
+	$(CLI) jira-comment-update $(ISSUE) $(COMMENT) $(if $(BODY),--body "$(BODY)") $(if $(BODY_FILE),--body-file $(BODY_FILE)) $(if $(NO_NOTIFY),--no-notify)
+
+jira-comment-delete: ## Delete a comment. Usage: make jira-comment-delete ISSUE=<key> COMMENT=<id> YES=1
+	@if [ -z "$(ISSUE)" ]; then echo "Error: ISSUE is required."; exit 1; fi
+	@if [ -z "$(COMMENT)" ]; then echo "Error: COMMENT is required."; exit 1; fi
+	@if [ -z "$(YES)" ]; then echo "Error: YES=1 required to confirm deletion."; exit 1; fi
+	$(CLI) jira-comment-delete $(ISSUE) $(COMMENT) --yes
 
 jira-link: ## Link two issues. Usage: make jira-link FROM=<key> TO=<key> TYPE=Blocks [COMMENT="..."]
 	@if [ -z "$(FROM)" ] || [ -z "$(TO)" ] || [ -z "$(TYPE)" ]; then echo "Error: FROM, TO, and TYPE are required."; exit 1; fi

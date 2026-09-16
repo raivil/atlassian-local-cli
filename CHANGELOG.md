@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.13.0 (2026-09-16)
+
+### Added
+- `jira-comment-update ISSUE COMMENT_ID` replaces a comment body (`--body` / `--body-file -`, same input handling as `jira-comment`). It prints the body it replaced: Jira shows only the new text once an edit lands, so that output is the only remaining copy of the old one. `--no-notify` sets the edit endpoint's `notifyUsers=false` — the library defaults it to true, so fixing a typo would otherwise email every watcher.
+- `jira-comment-delete ISSUE COMMENT_ID --yes` deletes a comment, printing it first. `--yes` is required and checked before the client is built, matching `jira-delete` and `wiki-comment-delete`. The request is a raw `DELETE` on `{resource_url}/issue/{key}/comment/{id}` because `atlassian-python-api` has no delete-comment method.
+
+Both commands read the comment through `issue_get_comment` before writing and echo it after the write succeeds. Live testing showed `issue_get_comment` *raises* on an id that is not on the issue rather than returning empty, so the lookup is wrapped: a wrong id now prints `cannot read comment <id> on <key>: <server message>` instead of a traceback. Echoing after the write means a rejected edit or delete cannot print a body it claims to have replaced or removed.
+
 ## v2.12.2 (2026-09-07)
 
 ### Fixed

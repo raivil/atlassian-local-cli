@@ -3,11 +3,14 @@ from argparse import Namespace
 from unittest.mock import MagicMock, patch
 
 import pytest
+from requests.exceptions import HTTPError
 
 from atlassian_local_cli.jira_extras import (
     build_search_jql,
     jira_clone,
     jira_comment,
+    jira_comment_delete,
+    jira_comment_update,
     jira_comments,
     jira_delete,
     jira_epic_issues,
@@ -213,6 +216,168 @@ class TestJiraComments:
         mock_create.return_value = mock_jira
         jira_comments(Namespace(issue_key="PROJ-1", json=False))
         assert "No comments" in capsys.readouterr().out
+
+
+class TestJiraCommentUpdate:
+    @patch("atlassian_local_cli.jira_extras.create_jira")
+    def test_replaces_body_and_notifies(self, mock_create, capsys):
+        mock_jira = MagicMock()
+        mock_jira.issue_get_comment.return_value = {
+            "id": "10", "author": {"displayName": "John"}, "created": "T", "body": "typo"
+        }
+        mock_create.return_value = mock_jira
+        jira_comment_update(Namespace(issue_key="PROJ-1", comment_id="10", body="fixed",
+                                      body_file=None, no_notify=False))
+        mock_jira.issue_edit_comment.assert_called_once_with(
+            "PROJ-1", "10", "fixed", notify_users=True
+        )
+        assert "PROJ-1" in capsys.readouterr().out
+
+    @patch("atlassian_local_cli.jira_extras.create_jira")
+    def test_no_notify_suppresses_the_watcher_email(self, mock_create):
+        mock_jira = MagicMock()
+        mock_jira.issue_get_comment.return_value = {"id": "10", "body": "typo"}
+        mock_create.return_value = mock_jira
+        jira_comment_update(Namespace(issue_key="PROJ-1", comment_id="10", body="fixed",
+                                      body_file=None, no_notify=True))
+        mock_jira.issue_edit_comment.assert_called_once_with(
+            "PROJ-1", "10", "fixed", notify_users=False
+        )
+
+    @patch("atlassian_local_cli.jira_extras.create_jira")
+    def test_prints_the_body_it_overwrote(self, mock_create, capsys):
+        """Jira keeps no user-visible history of an edited comment, so the
+        replaced text only survives in this output."""
+        mock_jira = MagicMock()
+        mock_jira.issue_get_comment.return_value = {
+            "id": "10", "author": {"displayName": "John"}, "created": "T", "body": "old text"
+        }
+        mock_create.return_value = mock_jira
+        jira_comment_update(Namespace(issue_key="PROJ-1", comment_id="10", body="new text",
+                                      body_file=None, no_notify=False))
+        mock_jira.issue_get_comment.assert_called_once_with("PROJ-1", "10")
+        assert "old text" in capsys.readouterr().out
+
+    @patch("atlassian_local_cli.jira_extras.create_jira")
+    def test_body_from_file(self, mock_create, tmp_path):
+        mock_jira = MagicMock()
+        mock_jira.issue_get_comment.return_value = {"id": "10", "body": "old"}
+        mock_create.return_value = mock_jira
+        f = tmp_path / "c.md"
+        f.write_text("From file")
+        jira_comment_update(Namespace(issue_key="PROJ-1", comment_id="10", body=None,
+                                      body_file=str(f), no_notify=False))
+        mock_jira.issue_edit_comment.assert_called_once_with(
+            "PROJ-1", "10", "From file", notify_users=True
+        )
+
+    @patch("atlassian_local_cli.jira_extras.create_jira")
+    def test_missing_body_exits_without_editing(self, mock_create):
+        mock_jira = MagicMock()
+        mock_create.return_value = mock_jira
+        with pytest.raises(SystemExit):
+            jira_comment_update(Namespace(issue_key="PROJ-1", comment_id="10", body=None,
+                                          body_file=None, no_notify=False))
+        mock_jira.issue_edit_comment.assert_not_called()
+
+    @patch("atlassian_local_cli.jira_extras.create_jira")
+    def test_unknown_comment_exits_without_editing(self, mock_create):
+        mock_jira = MagicMock()
+        mock_jira.issue_get_comment.return_value = None
+        mock_create.return_value = mock_jira
+        with pytest.raises(SystemExit):
+            jira_comment_update(Namespace(issue_key="PROJ-1", comment_id="999", body="x",
+                                          body_file=None, no_notify=False))
+        mock_jira.issue_edit_comment.assert_not_called()
+
+    @patch("atlassian_local_cli.jira_extras.create_jira")
+    def test_failed_edit_does_not_claim_the_body_was_replaced(self, mock_create, capsys):
+        mock_jira = MagicMock()
+        mock_jira.issue_get_comment.return_value = {"id": "10", "body": "old text"}
+        mock_jira.issue_edit_comment.side_effect = HTTPError("403 Forbidden")
+        mock_create.return_value = mock_jira
+        with pytest.raises(HTTPError):
+            jira_comment_update(Namespace(issue_key="PROJ-1", comment_id="10", body="new",
+                                          body_file=None, no_notify=False))
+        assert "Replaced" not in capsys.readouterr().out
+
+    @patch("atlassian_local_cli.jira_extras.create_jira")
+    def test_wrong_id_reports_instead_of_raising(self, mock_create, capsys):
+        """issue_get_comment raises rather than returning None for an id that is
+        not on the issue, which reached the user as a traceback."""
+        mock_jira = MagicMock()
+        mock_jira.issue_get_comment.side_effect = HTTPError(
+            "Can not find a comment for the id: 999."
+        )
+        mock_create.return_value = mock_jira
+        with pytest.raises(SystemExit):
+            jira_comment_update(Namespace(issue_key="PROJ-1", comment_id="999", body="x",
+                                          body_file=None, no_notify=False))
+        assert "999" in capsys.readouterr().err
+        mock_jira.issue_edit_comment.assert_not_called()
+
+
+class TestJiraCommentDelete:
+    @patch("atlassian_local_cli.jira_extras.create_jira")
+    def test_refuses_before_authenticating(self, mock_create):
+        with pytest.raises(SystemExit):
+            jira_comment_delete(Namespace(issue_key="PROJ-1", comment_id="10", yes=False))
+        mock_create.assert_not_called()
+
+    @patch("atlassian_local_cli.jira_extras.create_jira")
+    def test_deletes_with_yes(self, mock_create, capsys):
+        mock_jira = MagicMock()
+        mock_jira.resource_url.return_value = "rest/api/2/issue"
+        mock_jira.issue_get_comment.return_value = {
+            "id": "10", "author": {"displayName": "John"}, "created": "T", "body": "bye"
+        }
+        mock_create.return_value = mock_jira
+        jira_comment_delete(Namespace(issue_key="PROJ-1", comment_id="10", yes=True))
+        mock_jira.delete.assert_called_once_with("rest/api/2/issue/PROJ-1/comment/10")
+        assert "10" in capsys.readouterr().out
+
+    @patch("atlassian_local_cli.jira_extras.create_jira")
+    def test_unknown_comment_exits_without_deleting(self, mock_create):
+        mock_jira = MagicMock()
+        mock_jira.issue_get_comment.return_value = None
+        mock_create.return_value = mock_jira
+        with pytest.raises(SystemExit):
+            jira_comment_delete(Namespace(issue_key="PROJ-1", comment_id="999", yes=True))
+        mock_jira.delete.assert_not_called()
+
+    @patch("atlassian_local_cli.jira_extras.create_jira")
+    def test_wrong_id_reports_instead_of_raising(self, mock_create, capsys):
+        mock_jira = MagicMock()
+        mock_jira.issue_get_comment.side_effect = HTTPError(
+            "Can not find a comment for the id: 999."
+        )
+        mock_create.return_value = mock_jira
+        with pytest.raises(SystemExit):
+            jira_comment_delete(Namespace(issue_key="PROJ-1", comment_id="999", yes=True))
+        assert "999" in capsys.readouterr().err
+        mock_jira.delete.assert_not_called()
+
+    @patch("atlassian_local_cli.jira_extras.create_jira")
+    def test_failed_delete_does_not_claim_the_comment_was_deleted(self, mock_create, capsys):
+        mock_jira = MagicMock()
+        mock_jira.resource_url.return_value = "rest/api/2/issue"
+        mock_jira.issue_get_comment.return_value = {"id": "10", "body": "still there"}
+        mock_jira.delete.side_effect = HTTPError("403 Forbidden")
+        mock_create.return_value = mock_jira
+        with pytest.raises(HTTPError):
+            jira_comment_delete(Namespace(issue_key="PROJ-1", comment_id="10", yes=True))
+        assert "Deleted" not in capsys.readouterr().out
+
+    @patch("atlassian_local_cli.jira_extras.create_jira")
+    def test_prints_the_body_it_deleted(self, mock_create, capsys):
+        mock_jira = MagicMock()
+        mock_jira.resource_url.return_value = "rest/api/2/issue"
+        mock_jira.issue_get_comment.return_value = {
+            "id": "10", "author": {"displayName": "John"}, "created": "T", "body": "gone soon"
+        }
+        mock_create.return_value = mock_jira
+        jira_comment_delete(Namespace(issue_key="PROJ-1", comment_id="10", yes=True))
+        assert "gone soon" in capsys.readouterr().out
 
 
 class TestJiraLink:
