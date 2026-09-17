@@ -1239,6 +1239,112 @@ class TestStrikethroughUpload:
         out = md_to_confluence_html("~~~\ncode here\n~~~")
         assert "<s>" not in out
 
+    def test_strikes_a_wrapped_code_span(self):
+        """Reported from a live page: the tildes reached Confluence as literal
+        text. The pair straddles a code region, so substituting each non-code
+        segment on its own leaves neither half with a partner."""
+        out = md_to_confluence_html("~~`old_tag`~~")
+        assert "<s><code>old_tag</code></s>" in out
+        assert "~~" not in out
+
+    def test_strikes_a_wrapped_code_span_in_a_table_cell(self):
+        out = md_to_confluence_html("| a |\n| --- |\n| ~~`old_tag`~~ |")
+        assert "<td><s><code>old_tag</code></s></td>" in out
+        assert "~~" not in out
+
+    def test_two_wrapped_code_spans_do_not_eat_the_cell_separator(self):
+        """The orphaned delimiters left by the split pair with each other
+        across the separator, wrapping ` | ` in <s> and emitting a tag that
+        opens in one cell and closes in the next."""
+        out = md_to_confluence_html(
+            "| a | b |\n| --- | --- |\n| ~~`old_one`~~ | ~~`old_two`~~ |"
+        )
+        assert "<td><s><code>old_one</code></s></td>" in out
+        assert "<td><s><code>old_two</code></s></td>" in out
+        assert "<s></td>" not in out
+
+    def test_keeps_the_space_before_a_following_code_span(self):
+        out = md_to_confluence_html(
+            "| a | b |\n| --- | --- |\n| ~~`old`~~ | migrated tags to `new` |"
+        )
+        assert "migrated tags to <code>new</code>" in out
+
+    def test_strikes_text_around_a_code_span(self):
+        out = md_to_confluence_html("~~drop `x` and `y` too~~")
+        assert "<s>" in out and "</s>" in out
+        assert "~~" not in out
+
+
+class TestExportSpaceBeforeInlineElement:
+    """html2text drops the space before a nested inline element when it sits
+    inside emphasis, so "<s>tags to <code>x</code></s>" exports as
+    "~~tags to`x`~~". Reported from a live page, where it hit twice; the same
+    page's own frontmatter description carries "for the[PRD](...)" from the
+    <em> variant, so it is not specific to strikethrough.
+    """
+
+    def test_strikethrough_keeps_the_space_before_a_code_span(self):
+        assert _export_to_md("<p><s>tags to <code>x</code></s></p>") == "~~tags to `x`~~"
+
+    def test_bold_keeps_the_space_before_a_code_span(self):
+        assert _export_to_md("<p><strong>Only the <code>x</code> db</strong></p>") == "**Only the `x` db**"
+
+    def test_italic_keeps_the_space_before_a_link(self):
+        out = _export_to_md("<p><em>plan for the <a href=\"http://e.com\">PRD</a>.</em></p>")
+        assert out == "_plan for the [PRD](http://e.com)._"
+
+    def test_keeps_the_space_inside_a_table_cell(self):
+        out = _export_to_md(
+            "<table><tbody><tr><td><s>tags to <code>x</code></s></td></tr></tbody></table>"
+        )
+        assert "~~tags to `x`~~" in out
+
+    def test_every_code_span_in_one_emphasis_keeps_its_space(self):
+        out = _export_to_md("<p><strong>two <code>a</code> and <code>b</code> ends</strong></p>")
+        assert out == "**two `a` and `b` ends**"
+
+    def test_keeps_the_space_before_an_image(self):
+        out = _export_to_md("<p><strong>see <img src=\"i.png\" alt=\"x\"/> here</strong></p>")
+        assert "see ![x](i.png)" in out
+
+    def test_does_not_double_space_outside_emphasis(self):
+        """The guard is applied to every such space, not only those inside
+        emphasis, so the case html2text already handles must not gain one."""
+        assert _export_to_md("<p>plain the <code>x</code> db</p>") == "plain the `x` db"
+
+    def test_does_not_double_space_after_a_closing_emphasis_tag(self):
+        """Caught by diffing a real 50KB page: when the inline element FOLLOWS
+        the emphasis instead of sitting inside it, html2text emits its own
+        space, so protecting this one too yields "**TLS:**  `x`"."""
+        out = _export_to_md("<p><strong>TLS:</strong> <code>ssl_mode</code> only</p>")
+        assert out == "**TLS:** `ssl_mode` only"
+
+    def test_protects_a_space_after_nested_emphasis_still_inside_emphasis(self):
+        out = _export_to_md("<p><strong>a <em>b</em> <code>c</code></strong></p>")
+        assert out == "**a _b_ `c`**"
+
+    def test_leaves_no_sentinel_in_the_output(self):
+        out = _export_to_md(
+            "<p><strong>a <code>b</code></strong> and <a href=\"http://e.com\">c</a></p>"
+        )
+        assert "\x01" not in out
+
+    def test_the_reported_page_shape_round_trips_byte_for_byte(self):
+        """The live page's own storage now reads "<strong>Only the<code>" — a
+        previous export/edit/update cycle ate the space and wrote the damage
+        back, so it is unrecoverable there. This guards the shape it had first."""
+        html = (
+            "<p>via DMS. <strong>Only the <code>clinical_data</code> "
+            "database is in scope.</strong></p>"
+        )
+        md = _export_to_md(html)
+        assert md == "via DMS. **Only the `clinical_data` database is in scope.**"
+        assert md_to_confluence_html(md) == html
+
+    def test_a_code_block_does_not_gain_a_sentinel(self):
+        out = _export_to_md("<pre>text <code>inner</code> more</pre>")
+        assert "\x01" not in out
+
 
 class TestInlineHtmlUploadPassthrough:
     def test_underline_passes_through(self):

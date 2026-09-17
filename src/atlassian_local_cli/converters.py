@@ -24,6 +24,21 @@ MD_EXTENSIONS = ["tables", "fenced_code", "footnotes"]
 # it can never collide with real page content. See _fill_empty_table_cells /
 # _restore_empty_table_cells.
 EMPTY_CELL_SENTINEL = "\x01EMPTYCELL\x01"
+SPACE_SENTINEL = "\x01SP\x01"
+# html2text discards the space that ENDS a text run inside emphasis when an
+# inline element follows it: "<s>tags to <code>x</code></s>" comes back as
+# "~~tags to`x`~~", joining the words. Outside emphasis the space survives, so
+# the loss stays invisible until a page italicises or strikes a run containing a
+# code span or a link. Standing in for the space with a non-space character gets
+# it through; the restore is unconditional, so nothing can leak.
+#
+# Only a run ending in text qualifies. Where the space follows a closing tag
+# instead — "<strong>TLS:</strong> <code>x</code>", or " " between </em> and
+# <code> inside a <strong> — html2text emits a space of its own, and protecting
+# that one too yields "**TLS:**  `x`". Diffing a real 50KB page caught it.
+_SPACE_BEFORE_INLINE_RE = re.compile(r" (?=<(?:code|a|tt|kbd|img)\b)")
+_SPACE_EATING_EMPHASIS = ("strong", "em", "s", "b", "i", "del", "strike")
+_INLINE_AFTER_SPACE = ("code", "a", "tt", "kbd", "img")
 
 LOZENGE_TO_COLOUR = {
     "aui-lozenge-success": "green",
@@ -405,7 +420,29 @@ def preprocess_export_html(html):
     # Last, after all cell-content rewrites: guard empty cells against html2text.
     html = _fill_empty_table_cells(html)
 
-    return html
+    # After them too: the structural patterns above match on \s* between tags,
+    # which a sentinel standing in for a space would defeat.
+    return _protect_space_before_inline(html)
+
+
+def _protect_space_before_inline(html):
+    """Stand in for spaces html2text would drop. See SPACE_SENTINEL."""
+    if not _SPACE_BEFORE_INLINE_RE.search(html):
+        return html
+
+    soup = BeautifulSoup(html, "html.parser")
+    for node in soup.find_all(string=True):
+        text = str(node)
+        # A run of pure whitespace sits between two tags, so html2text supplies
+        # its own space and this one must be left alone.
+        if not text.endswith(" ") or not text.strip():
+            continue
+        if getattr(node.next_sibling, "name", None) not in _INLINE_AFTER_SPACE:
+            continue
+        if node.find_parent(_SPACE_EATING_EMPHASIS) is None:
+            continue
+        node.replace_with(text[:-1] + SPACE_SENTINEL)
+    return str(soup)
 
 
 def _restore_empty_table_cells(md_text):
@@ -433,6 +470,9 @@ def _restore_empty_table_cells(md_text):
 
 def postprocess_export_md(md_text):
     """Convert placeholders back to markdown syntax after html2text."""
+    # Before _restore_inline_html, whose own space juggling around the shielded
+    # tags looks for a literal space where this sentinel would be sitting.
+    md_text = md_text.replace(SPACE_SENTINEL, " ")
     md_text = _restore_inline_html(md_text)
     if EMPTY_CELL_SENTINEL in md_text:
         md_text = _restore_empty_table_cells(md_text)
@@ -955,6 +995,25 @@ def _sub_outside_code(pattern, repl, md_text):
     return "".join(parts)
 
 
+_CODE_MASK_RE = re.compile(r"\x01CODE(\d+)\x01")
+
+
+def _sub_masking_code(pattern, repl, md_text):
+    """Like _sub_outside_code, but for a span whose delimiters may legitimately
+    wrap a code region. Substituting each non-code segment separately splits
+    ``~~`x`~~`` across two scopes, so neither half finds its partner — and the
+    orphans left behind then pair with the next span's, swallowing whatever lies
+    between them, cell separators included."""
+    regions = []
+
+    def _mask(m):
+        regions.append(m.group(0))
+        return f"\x01CODE{len(regions) - 1}\x01"
+
+    masked = re.sub(pattern, repl, _CODE_REGION_RE.sub(_mask, md_text))
+    return _CODE_MASK_RE.sub(lambda m: regions[int(m.group(1))], masked)
+
+
 def md_to_confluence_html(md_text):
     """Convert markdown to Confluence storage format HTML."""
     # Extract passthrough blocks first
@@ -989,7 +1048,7 @@ def md_to_confluence_html(md_text):
     # GFM strikethrough: Python-Markdown implements no such syntax, so without
     # this ~~x~~ reaches the page as literal tildes — while export happily emits
     # ~~x~~ for <s>, making the round trip lossy in one direction only.
-    md_text = _sub_outside_code(r'~~(.+?)~~', r'<s>\1</s>', md_text)
+    md_text = _sub_masking_code(r'~~(.+?)~~', r'<s>\1</s>', md_text)
 
     # Extract <details> blocks before markdown parsing
     expand_blocks = {}

@@ -1,5 +1,21 @@
 # Changelog
 
+## v2.15.0 (2026-09-17)
+
+### Fixed
+- Strikethrough wrapping an inline code span (``~~`old_tag`~~``) reached Confluence as literal tildes. `_sub_outside_code()` substitutes each non-code segment separately, so the pair straddling a code region left neither half with a partner. In a table it was worse than cosmetic: the orphaned delimiters then paired with the next cell's, swallowing the ` | ` separator into `<s>` and emitting a tag that opened in one `<td>` and closed in the next. Strikethrough now substitutes through `_sub_masking_code()`, which masks code regions and matches across them.
+- Export dropped the space before a code span or link inside emphasis, so `<s>tags to <code>x</code></s>` came back as ``~~tags to`x`~~`` with the words joined. The loss is html2text's, upstream of this tool, and it only fires inside emphasis — which is why it stayed invisible until a page struck or italicised a run containing code. `_protect_space_before_inline()` stands a sentinel in for that space and `postprocess_export_md()` restores it.
+
+Both were reported together from one live page, as a single strikethrough problem. They are independent: the second fires for `**bold**` and `_italic_` just as readily, so avoiding strikethrough would not have prevented it.
+
+The space guard applies only where the space *ends a text run* inside emphasis. Where it follows a closing tag instead — `<strong>TLS:</strong> <code>x</code>`, or the lone space between `</em>` and `<code>` inside a `<strong>` — html2text emits a space of its own and protecting that one too produced ``**TLS:**  `x` ``. Diffing a real 50KB page before and after caught that regression; the narrowed guard re-exports the same page with zero changes.
+
+Note that the corruption is persistent once written: a page exported, edited and updated before this release has the joined words in its stored HTML, with no space left to recover. That is verifiable on a page whose storage now reads `<strong>Only the<code>clinical_data</code>`.
+
+### Known issues
+- An odd number of `~~` sequences in a single table row still pairs across cells, emitting `<td>unpaired <s></td><td>a </s> b</td>`. Unchanged by this release. Forbidding `~~` from spanning an unescaped `|` would fix it but would break `~~a | b~~` in ordinary prose, so it is left for a separate decision.
+- Nested same-tag emphasis (`<strong>` inside `<strong>`) exports as `**to**x** end**`, which is ambiguous markdown. Independent of the space handling above.
+
 ## v2.14.0 (2026-09-16)
 
 ### Added
