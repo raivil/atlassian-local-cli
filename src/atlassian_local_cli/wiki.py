@@ -1,5 +1,7 @@
+import collections
 import fnmatch
 import json
+import mimetypes
 import os
 import re
 import sys
@@ -294,6 +296,112 @@ def _upload_attachments(confluence, page_id, images):
     for filename, abs_path in images:
         confluence.attach_file(abs_path, page_id=page_id, name=filename)
         print(f"  Uploaded attachment: {filename}")
+
+
+def _resolve_uploads(files, name):
+    """Resolve and validate every local path before the first upload. The
+    uploads themselves are not transactional, so a bad path caught halfway
+    through would leave the page holding a partial set."""
+    if name and len(files) != 1:
+        print("Error: --name renames a single file; pass exactly one FILE with it.", file=sys.stderr)
+        sys.exit(1)
+
+    uploads, missing = [], []
+    for path in files:
+        abs_path = os.path.abspath(path)
+        if os.path.isfile(abs_path):
+            uploads.append((name or os.path.basename(abs_path), abs_path))
+        else:
+            missing.append(path)
+
+    if missing:
+        for path in missing:
+            print(f"Error: {path} is not a file.", file=sys.stderr)
+        sys.exit(1)
+
+    counts = collections.Counter(name for name, _ in uploads)
+    repeated = sorted(name for name, count in counts.items() if count > 1)
+    if repeated:
+        for duplicate in repeated:
+            print(f"Error: more than one FILE would be attached as {duplicate}.", file=sys.stderr)
+        sys.exit(1)
+    return uploads
+
+
+def _content_type(name):
+    """Typed from the name Confluence will serve it under, not the local path.
+    The library's own extension map covers 8 image and Office formats, so a
+    .csv or .sql attachment is stored as application/binary and served as an
+    opaque download. None defers to that map."""
+    return mimetypes.guess_type(name)[0]
+
+
+def wiki_attach(args):
+    uploads = _resolve_uploads(args.files, args.name)
+
+    confluence = create_confluence()
+    existing = {}
+    for attachment in _iter_attachments(confluence, args.page_id):
+        summary = _attachment_summary(attachment)
+        existing[summary["title"]] = summary
+
+    # attach_file upserts on filename, so an unguarded run silently supersedes
+    # whatever is already there — including a file someone else uploaded.
+    collisions = [name for name, _ in uploads if name in existing]
+    if collisions and not args.replace:
+        for name in collisions:
+            print(
+                f"Error: {name} is already attached to page {args.page_id} "
+                f"(v{existing[name]['version']}).",
+                file=sys.stderr,
+            )
+        print("Pass --replace to upload it as a new version.", file=sys.stderr)
+        sys.exit(1)
+
+    for name, abs_path in uploads:
+        confluence.attach_file(
+            abs_path,
+            page_id=args.page_id,
+            name=name,
+            content_type=_content_type(name),
+            comment=args.comment,
+        )
+        previous = existing.get(name)
+        if previous:
+            print(f"Replaced {name} (v{previous['version']} -> v{previous['version'] + 1})")
+        else:
+            print(f"Uploaded {name} ({_human_size(os.path.getsize(abs_path))})")
+
+
+def wiki_attachment_delete(args):
+    if not args.yes:
+        print(
+            f"Refusing to delete {args.name or args.id} from page {args.page_id} without --yes.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    if bool(args.name) == bool(args.id):
+        print("Error: identify the attachment by filename or by --id, not both.", file=sys.stderr)
+        sys.exit(1)
+
+    confluence = create_confluence()
+    match = next(
+        (
+            summary
+            for summary in (_attachment_summary(a) for a in _iter_attachments(confluence, args.page_id))
+            if (args.id and summary["id"] == args.id) or (args.name and summary["title"] == args.name)
+        ),
+        None,
+    )
+    if match is None:
+        print(
+            f"Error: {args.name or args.id} is not an attachment of page {args.page_id}.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    confluence.remove_content(match["id"])
+    print(f"Deleted {match['title']} ({_human_size(match['size'])}, v{match['version']}) from page {args.page_id}")
 
 
 def wiki_update(args):

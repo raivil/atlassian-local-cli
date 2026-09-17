@@ -18,6 +18,8 @@ make clean                                                  # Remove build artif
 make wiki-export PAGE=<id> [OUTPUT=out.md] [ATTACHMENTS=1]  # Export Confluence page
 make wiki-update PAGE=<id> INPUT=<file.md>                  # Update Confluence page
 make wiki-attachments PAGE=<id> [OUTPUT=<dir>]              # List or download page attachments
+make wiki-attach PAGE=<id> FILES="<f> [f...]" [REPLACE=1]   # Attach local files to a page
+make wiki-attachment-delete PAGE=<id> NAME=<file> YES=1     # Delete a page attachment
 make wiki-comments PAGE=<id> [LOCATION=footer] [JSON=1]     # List page comments
 make wiki-comment PAGE=<id> BODY="<markdown>"               # Add a page comment
 make wiki-comment-delete COMMENT=<id> YES=1                 # Delete a page comment
@@ -116,6 +118,13 @@ Python package in `src/atlassian_local_cli/` with `main.py` as a backward-compat
   - `wiki-attachments` lists a page's attachments, or downloads them with `-o <dir>` (`--match <glob>` filters, `--json` for scripting). Attachments referenced by the page body are *not* rewritten to local paths on export, so `wiki-export` → `wiki-update` still doesn't round-trip them.
   - `_iter_attachments()` pages through `get_attachments_from_content` 50 at a time. The library's own `download_attachments_from_page` never pages past the first batch, silently dropping files 51+, which is why it isn't used.
   - `_safe_attachment_name()` basenames and sanitizes the server-supplied title (it lands in an `open()` path) and dedupes post-sanitization collisions with a ` (1)` suffix; a download whose resolved path leaves the target dir is skipped. Existing files are overwritten, so re-running picks up newer attachment versions.
+- **`wiki.py`** — `wiki-attach` uploads local files as attachments; `wiki-attachment-delete` removes one.
+  - `attach_file` upserts on filename, so an unguarded upload silently supersedes whatever is already there, including a file someone else put on the page. `wiki-attach` lists the page's attachments first and refuses a colliding name unless `--replace`, then reports the bump (`Replaced report.pdf (v2 -> v3)`) from the version read during that preflight rather than a second lookup.
+  - `_resolve_uploads()` stats every path and rejects `--name` with more than one FILE *before* the client is built. The uploads are sequential and not transactional, so validating per-file would leave the page holding a partial set; the running `Uploaded`/`Replaced` output is what records which files landed when a later upload fails.
+  - Two FILEs that would land on the same attachment name are refused too: the collision map is built once, before the first upload, so a name repeated within one run would version-bump past `--replace` and leave only the last file.
+  - `_content_type()` types the upload from the name Confluence stores it under, via `mimetypes`. The library's own map covers 8 image and Office extensions, so live testing showed a `.csv` and a `.sql` both landing as `application/binary` — served as opaque downloads, with no preview. `mimetypes` returns the library's own answer for all 8, so the fallback (a `None` guess) cannot regress them. Typing from the local path instead would mistype `--name rows.csv` applied to an extension-less temp file.
+  - `--name` renames on upload and is what the collision check runs against — checking the local filename instead would let `--name` overwrite an existing attachment silently.
+  - `wiki-attachment-delete` targets a filename (unique per page — the same key `attach_file` upserts on) or an `--id` from `wiki-attachments --json`, requires exactly one of the two, and prints the attachment before removing it. `--yes` is checked before `create_confluence()`, matching `wiki-delete`/`wiki-comment-delete`: building the client first reports a missing token instead of the actual problem.
 - **`wiki_comments.py`** — `wiki-comments` (list), `wiki-comment` (add), `wiki-comment-delete`.
   - Listing renders the **rendered** body (`body.export_view`, falling back to `body.view` then `body.storage`) through html2text. Storage format keeps a code block as an `ac:structured-macro`, which html2text reduces to the bare language name while dropping the CDATA payload — caught in live testing, where a SQL block listed as just `sql`. `--json` still returns the full payload including `body.storage`.
   - Adding converts the markdown body with `md_to_confluence_html()` first: `add_comment()` posts its argument as `body.storage`, so raw markdown lands on the page as literal `**` and `- `.

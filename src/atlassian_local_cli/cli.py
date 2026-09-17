@@ -49,6 +49,8 @@ from .jira_extras import (
     jira_worklog,
 )
 from .wiki import (
+    wiki_attach,
+    wiki_attachment_delete,
     wiki_attachments,
     wiki_create,
     wiki_delete,
@@ -288,6 +290,22 @@ def main():
     p.add_argument("--match", metavar="GLOB", help="Only attachments whose filename matches this glob")
     p.add_argument("--json", action="store_true", help="Output the listing as JSON (ignored with -o)")
     p.set_defaults(func=wiki_attachments)
+
+    p = subparsers.add_parser("wiki-attach", help="Attach local files to a page")
+    p.add_argument("page_id", help="Confluence page ID")
+    p.add_argument("files", nargs="+", metavar="FILE", help="Local files to upload")
+    p.add_argument("--replace", action="store_true",
+                   help="Upload a new version of an attachment that already has that filename")
+    p.add_argument("--name", help="Attach under this filename instead (one FILE only)")
+    p.add_argument("--comment", help="Version comment recorded with the upload")
+    p.set_defaults(func=wiki_attach)
+
+    p = subparsers.add_parser("wiki-attachment-delete", help="Delete an attachment from a page")
+    p.add_argument("page_id", help="Confluence page ID")
+    p.add_argument("name", nargs="?", help="Attachment filename (or use --id)")
+    p.add_argument("--id", help="Attachment ID (from wiki-attachments --json)")
+    p.add_argument("--yes", action="store_true", help="Confirm deletion (required)")
+    p.set_defaults(func=wiki_attachment_delete)
 
     p = subparsers.add_parser("wiki-raw", help="Dump a page's raw HTML (debug export problems)")
     p.add_argument("page_id", help="Confluence page ID")

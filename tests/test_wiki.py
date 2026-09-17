@@ -6,6 +6,8 @@ import pytest
 
 from atlassian_local_cli.converters import md_to_confluence_html
 from atlassian_local_cli.wiki import (
+    wiki_attach,
+    wiki_attachment_delete,
     wiki_attachments,
     wiki_create,
     wiki_delete,
@@ -627,3 +629,239 @@ class TestDeleteGuardOrdering:
         with pytest.raises(SystemExit):
             wiki_delete(Namespace(page_id="12345", yes=False, cascade=False))
         mock_create.assert_not_called()
+
+
+class TestWikiAttach:
+    @staticmethod
+    def _client(existing=()):
+        confluence = MagicMock()
+        confluence.get_attachments_from_content.return_value = _page(list(existing))
+        return confluence
+
+    @staticmethod
+    def _args(files, replace=False, name=None, comment=None):
+        return Namespace(page_id="12345", files=files, replace=replace, name=name, comment=comment)
+
+    @patch("atlassian_local_cli.wiki.create_confluence")
+    def test_uploads_a_new_file(self, mock_create, tmp_path, capsys):
+        mock_create.return_value = self._client()
+        doc = tmp_path / "report.pdf"
+        doc.write_bytes(b"hello")
+
+        wiki_attach(self._args([str(doc)]))
+
+        call = mock_create.return_value.attach_file.call_args
+        assert call.args[0] == str(doc)
+        assert call.kwargs["page_id"] == "12345"
+        assert call.kwargs["name"] == "report.pdf"
+        assert "Uploaded report.pdf (5 B)" in capsys.readouterr().out
+
+    @patch("atlassian_local_cli.wiki.create_confluence")
+    def test_refuses_a_name_already_attached(self, mock_create, tmp_path, capsys):
+        mock_create.return_value = self._client([_attachment("report.pdf", version=2)])
+        doc = tmp_path / "report.pdf"
+        doc.write_bytes(b"hello")
+
+        with pytest.raises(SystemExit):
+            wiki_attach(self._args([str(doc)]))
+
+        mock_create.return_value.attach_file.assert_not_called()
+        err = capsys.readouterr().err
+        assert "report.pdf" in err
+        assert "--replace" in err
+
+    @patch("atlassian_local_cli.wiki.create_confluence")
+    def test_every_collision_is_reported_not_just_the_first(self, mock_create, tmp_path, capsys):
+        mock_create.return_value = self._client([
+            _attachment("a.txt"), _attachment("b.txt", att_id="att2"),
+        ])
+        a, b = tmp_path / "a.txt", tmp_path / "b.txt"
+        a.write_bytes(b"a")
+        b.write_bytes(b"b")
+
+        with pytest.raises(SystemExit):
+            wiki_attach(self._args([str(a), str(b)]))
+
+        err = capsys.readouterr().err
+        assert "a.txt" in err
+        assert "b.txt" in err
+
+    @patch("atlassian_local_cli.wiki.create_confluence")
+    def test_replace_reports_the_version_bump(self, mock_create, tmp_path, capsys):
+        mock_create.return_value = self._client([_attachment("report.pdf", version=2)])
+        doc = tmp_path / "report.pdf"
+        doc.write_bytes(b"hello")
+
+        wiki_attach(self._args([str(doc)], replace=True))
+
+        mock_create.return_value.attach_file.assert_called_once()
+        assert "Replaced report.pdf (v2 -> v3)" in capsys.readouterr().out
+
+    @patch("atlassian_local_cli.wiki.create_confluence")
+    def test_a_missing_local_file_aborts_before_any_upload(self, mock_create, tmp_path, capsys):
+        good = tmp_path / "a.txt"
+        good.write_bytes(b"a")
+
+        with pytest.raises(SystemExit):
+            wiki_attach(self._args([str(good), str(tmp_path / "gone.txt")]))
+
+        mock_create.assert_not_called()
+        assert "gone.txt" in capsys.readouterr().err
+
+    @patch("atlassian_local_cli.wiki.create_confluence")
+    def test_name_is_rejected_with_more_than_one_file(self, mock_create, tmp_path, capsys):
+        a, b = tmp_path / "a.txt", tmp_path / "b.txt"
+        a.write_bytes(b"a")
+        b.write_bytes(b"b")
+
+        with pytest.raises(SystemExit):
+            wiki_attach(self._args([str(a), str(b)], name="renamed.txt"))
+
+        mock_create.assert_not_called()
+        assert "--name" in capsys.readouterr().err
+
+    @patch("atlassian_local_cli.wiki.create_confluence")
+    def test_name_renames_the_upload(self, mock_create, tmp_path, capsys):
+        mock_create.return_value = self._client()
+        doc = tmp_path / "local.txt"
+        doc.write_bytes(b"x")
+
+        wiki_attach(self._args([str(doc)], name="renamed.txt"))
+
+        assert mock_create.return_value.attach_file.call_args.kwargs["name"] == "renamed.txt"
+        assert "Uploaded renamed.txt" in capsys.readouterr().out
+
+    @patch("atlassian_local_cli.wiki.create_confluence")
+    def test_the_renamed_name_is_what_collides(self, mock_create, tmp_path, capsys):
+        """The collision check has to run on the name the attachment will land
+        under, not the local filename, or --name silently overwrites."""
+        mock_create.return_value = self._client([_attachment("taken.txt")])
+        doc = tmp_path / "local.txt"
+        doc.write_bytes(b"x")
+
+        with pytest.raises(SystemExit):
+            wiki_attach(self._args([str(doc)], name="taken.txt"))
+
+        mock_create.return_value.attach_file.assert_not_called()
+        assert "taken.txt" in capsys.readouterr().err
+
+    @patch("atlassian_local_cli.wiki.create_confluence")
+    def test_the_media_type_is_derived_from_the_extension(self, mock_create, tmp_path):
+        """The library's own map knows 8 extensions, all of them images or
+        Office formats, so a .csv would be stored as application/binary and
+        served as an opaque download."""
+        mock_create.return_value = self._client()
+        doc = tmp_path / "rows.csv"
+        doc.write_bytes(b"a,b\n")
+
+        wiki_attach(self._args([str(doc)]))
+
+        assert mock_create.return_value.attach_file.call_args.kwargs["content_type"] == "text/csv"
+
+    @patch("atlassian_local_cli.wiki.create_confluence")
+    def test_the_media_type_follows_the_name_it_is_stored_under(self, mock_create, tmp_path):
+        """Confluence serves the attachment under --name, so a local file with
+        no useful extension would otherwise be typed from the wrong end."""
+        mock_create.return_value = self._client()
+        doc = tmp_path / "tmp12345"
+        doc.write_bytes(b"a,b\n")
+
+        wiki_attach(self._args([str(doc)], name="rows.csv"))
+
+        assert mock_create.return_value.attach_file.call_args.kwargs["content_type"] == "text/csv"
+
+    @patch("atlassian_local_cli.wiki.create_confluence")
+    def test_an_unguessable_extension_defers_to_the_library(self, mock_create, tmp_path):
+        mock_create.return_value = self._client()
+        doc = tmp_path / "notes.unknownext"
+        doc.write_bytes(b"x")
+
+        wiki_attach(self._args([str(doc)]))
+
+        assert mock_create.return_value.attach_file.call_args.kwargs["content_type"] is None
+
+    @patch("atlassian_local_cli.wiki.create_confluence")
+    def test_two_files_landing_on_one_name_are_refused(self, mock_create, tmp_path, capsys):
+        """The collision map is built once, before the first upload, so a name
+        repeated within a single run would version-bump past the --replace guard
+        and leave only the last file."""
+        first, second = tmp_path / "a" / "report.pdf", tmp_path / "b" / "report.pdf"
+        for path in (first, second):
+            path.parent.mkdir()
+            path.write_bytes(b"x")
+
+        with pytest.raises(SystemExit):
+            wiki_attach(self._args([str(first), str(second)]))
+
+        mock_create.assert_not_called()
+        assert "report.pdf" in capsys.readouterr().err
+
+    @patch("atlassian_local_cli.wiki.create_confluence")
+    def test_comment_is_passed_to_the_upload(self, mock_create, tmp_path):
+        mock_create.return_value = self._client()
+        doc = tmp_path / "a.txt"
+        doc.write_bytes(b"x")
+
+        wiki_attach(self._args([str(doc)], comment="quarterly refresh"))
+
+        assert mock_create.return_value.attach_file.call_args.kwargs["comment"] == "quarterly refresh"
+
+
+class TestWikiAttachmentDelete:
+    @staticmethod
+    def _args(name=None, att_id=None, yes=True):
+        return Namespace(page_id="12345", name=name, id=att_id, yes=yes)
+
+    @patch("atlassian_local_cli.wiki.create_confluence")
+    def test_refuses_without_yes_before_authenticating(self, mock_create):
+        with pytest.raises(SystemExit):
+            wiki_attachment_delete(self._args(name="report.pdf", yes=False))
+        mock_create.assert_not_called()
+
+    @patch("atlassian_local_cli.wiki.create_confluence")
+    def test_requires_a_name_or_an_id(self, mock_create):
+        with pytest.raises(SystemExit):
+            wiki_attachment_delete(self._args())
+        mock_create.assert_not_called()
+
+    @patch("atlassian_local_cli.wiki.create_confluence")
+    def test_deletes_by_filename(self, mock_create, capsys):
+        confluence = MagicMock()
+        confluence.get_attachments_from_content.return_value = _page([
+            _attachment("report.pdf", size=4119, att_id="att7", version=2),
+        ])
+        mock_create.return_value = confluence
+
+        wiki_attachment_delete(self._args(name="report.pdf"))
+
+        confluence.remove_content.assert_called_once_with("att7")
+        out = capsys.readouterr().out
+        assert "report.pdf" in out
+        assert "4.0 KB" in out
+        assert "v2" in out
+
+    @patch("atlassian_local_cli.wiki.create_confluence")
+    def test_deletes_by_id(self, mock_create, capsys):
+        confluence = MagicMock()
+        confluence.get_attachments_from_content.return_value = _page([
+            _attachment("report.pdf", att_id="att7"),
+            _attachment("other.txt", att_id="att8"),
+        ])
+        mock_create.return_value = confluence
+
+        wiki_attachment_delete(self._args(att_id="att8"))
+
+        confluence.remove_content.assert_called_once_with("att8")
+        assert "other.txt" in capsys.readouterr().out
+
+    @patch("atlassian_local_cli.wiki.create_confluence")
+    def test_a_name_that_is_not_on_the_page_is_reported(self, mock_create, capsys):
+        confluence = MagicMock()
+        confluence.get_attachments_from_content.return_value = _page([_attachment("report.pdf")])
+        mock_create.return_value = confluence
+
+        with pytest.raises(SystemExit):
+            wiki_attachment_delete(self._args(name="gone.pdf"))
+
+        confluence.remove_content.assert_not_called()
+        assert "gone.pdf" in capsys.readouterr().err

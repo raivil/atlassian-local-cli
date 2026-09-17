@@ -87,3 +87,41 @@ class TestCliParsing:
         sys.argv = ["atlassian-local-cli", "wiki-export", "12345"]
         main()
         assert mock_handler.call_args[0][0].attachments is False
+
+    @patch("atlassian_local_cli.cli.wiki_attach")
+    def test_wiki_attach_parses_several_files_and_flags(self, mock_handler):
+        sys.argv = [
+            "atlassian-local-cli", "wiki-attach", "12345", "a.pdf", "b.csv",
+            "--replace", "--comment", "quarterly refresh",
+        ]
+        main()
+        args = mock_handler.call_args[0][0]
+        assert args.page_id == "12345"
+        assert args.files == ["a.pdf", "b.csv"]
+        assert args.replace is True
+        assert args.comment == "quarterly refresh"
+        assert args.name is None
+
+    @patch("atlassian_local_cli.cli.wiki_attach")
+    def test_wiki_attach_defaults_to_refusing_replacement(self, mock_handler):
+        sys.argv = ["atlassian-local-cli", "wiki-attach", "12345", "a.pdf"]
+        main()
+        assert mock_handler.call_args[0][0].replace is False
+
+    @patch("atlassian_local_cli.cli.wiki_attachment_delete")
+    def test_wiki_attachment_delete_parses_name_and_yes(self, mock_handler):
+        sys.argv = ["atlassian-local-cli", "wiki-attachment-delete", "12345", "report.pdf", "--yes"]
+        main()
+        args = mock_handler.call_args[0][0]
+        assert args.page_id == "12345"
+        assert args.name == "report.pdf"
+        assert args.id is None
+        assert args.yes is True
+
+    @patch("atlassian_local_cli.cli.wiki_attachment_delete")
+    def test_wiki_attachment_delete_takes_an_id_without_a_name(self, mock_handler):
+        sys.argv = ["atlassian-local-cli", "wiki-attachment-delete", "12345", "--id", "att7", "--yes"]
+        main()
+        args = mock_handler.call_args[0][0]
+        assert args.name is None
+        assert args.id == "att7"

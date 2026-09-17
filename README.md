@@ -157,6 +157,15 @@ atlassian-local-cli wiki-attachments 12345 -o ./attachments
 atlassian-local-cli wiki-attachments 12345 -o . --match '*.sql'
 atlassian-local-cli wiki-attachments 12345 --json
 
+# Attach local files to a page
+atlassian-local-cli wiki-attach 12345 report.pdf query.sql
+atlassian-local-cli wiki-attach 12345 report.pdf --replace
+atlassian-local-cli wiki-attach 12345 build.log --name 2026-09-16.log --comment "nightly run"
+
+# Delete an attachment (--yes is required)
+atlassian-local-cli wiki-attachment-delete 12345 report.pdf --yes
+atlassian-local-cli wiki-attachment-delete 12345 --id att7 --yes
+
 # Comments (bodies are markdown, converted to Confluence storage format)
 atlassian-local-cli wiki-comments 12345
 atlassian-local-cli wiki-comments 12345 --location resolved
@@ -206,6 +215,22 @@ versions of an attachment. `--match` takes a shell glob against the filename and
 applies to both listing and download. Note that `wiki-export` does not rewrite
 attachment links in the markdown to local paths — the exported body still points
 at the server.
+
+`wiki-attach` uploads local files as attachments. It refuses a filename the page
+already carries unless you pass `--replace`, because Confluence upserts on
+filename: an unguarded upload supersedes whatever is there, including a file
+someone else put on the page. With `--replace` it reports the version it bumped
+(`Replaced report.pdf (v2 -> v3)`). Missing local files abort the whole command
+before the first upload, since the uploads themselves are sequential and not
+transactional. `--name` attaches one file under a different name, and the
+collision check runs against that name, not the local one. Attachments are
+typed from that name, so a `.csv` or `.sql` is stored as `text/csv` /
+`application/x-sql` rather than the `application/binary` the underlying
+library falls back to for anything outside its 8 known extensions.
+
+`wiki-attachment-delete` takes a filename — unique per page, which is what
+`wiki-attach` upserts on — or an `--id` from `wiki-attachments --json`. It
+requires `--yes` and prints the attachment it removed.
 
 ### Jira
 
@@ -435,6 +460,8 @@ make clean                                                  # Remove build artif
 make wiki-export PAGE=12345 OUTPUT=page.md ATTACHMENTS=1
 make wiki-update PAGE=12345 INPUT=page.md
 make wiki-attachments PAGE=12345 OUTPUT=./attachments MATCH='*.sql'
+make wiki-attach PAGE=12345 FILES="report.pdf query.sql" REPLACE=1
+make wiki-attachment-delete PAGE=12345 NAME=report.pdf YES=1
 make wiki-comments PAGE=12345 LOCATION=footer
 make wiki-comment PAGE=12345 BODY="Looks right to me"
 make wiki-comment-delete COMMENT=12346 YES=1

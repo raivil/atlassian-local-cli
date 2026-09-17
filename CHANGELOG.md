@@ -1,5 +1,21 @@
 # Changelog
 
+## v2.14.0 (2026-09-16)
+
+### Added
+- `wiki-attach PAGE FILE [FILE...]` attaches local files to a page — any file type, without touching the page body. Until now the only way to attach anything was to reference an image from markdown and run `wiki-update`.
+- `wiki-attachment-delete PAGE NAME --yes` (or `--id`) removes an attachment. `--yes` is required and checked before the client is built, matching `wiki-delete` and `wiki-comment-delete`. It prints the attachment — name, size, version — after the delete succeeds, so the output cannot claim to have removed something the server rejected.
+
+`attach_file` upserts on filename: uploading `report.pdf` to a page that already has one replaces it with a new version, silently. `wiki-attach` therefore lists the page's attachments first and refuses a colliding name unless `--replace` is passed, naming every collision at once rather than failing on the first. With `--replace` it reports what it superseded (`Replaced report.pdf (v2 -> v3)`), taking the version from that same listing rather than a second lookup.
+
+Two FILEs that would land on the same attachment name are refused as well — the collision map is built once, before the first upload, so a name repeated within a single run would version-bump past `--replace` and leave only the last file on the page.
+
+Local paths are stat'd, and `--name` is rejected with more than one FILE, before the client is built. The uploads themselves are sequential and cannot be made transactional against this API, so a path validated per-file would leave the page holding a partial set; the `Uploaded`/`Replaced` line printed per file is what records which ones landed if a later upload fails.
+
+Attachments are typed with `mimetypes` from the name they are stored under. `atlassian-python-api` maps only 8 extensions — all images or Office formats — so live testing against a sandbox page showed `.csv` and `.sql` uploads stored as `application/binary`, which Confluence serves as an opaque download with no preview. `mimetypes` agrees with the library on all 8, and an unguessable extension defers to it, so nothing that worked before changes.
+
+`--name` attaches a single file under a different name, and the collision check runs against that name — checking the local filename would let `--name` overwrite an existing attachment without the guard firing. `--comment` sets the version comment Confluence records with the upload.
+
 ## v2.13.0 (2026-09-16)
 
 ### Added
