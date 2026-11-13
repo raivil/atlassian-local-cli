@@ -27,8 +27,9 @@ Download your platform's binary from the [Releases](../../releases) page:
 | Asset | Platform |
 |---|---|
 | `atlassian-local-cli-macos-arm64` | macOS, Apple Silicon |
-| `atlassian-local-cli-macos-x86_64` | macOS, Intel |
 | `atlassian-local-cli-linux-x86_64` | Linux, x86_64 |
+
+There is no Intel macOS binary. On an Intel Mac, install from source (above).
 
 ```bash
 chmod +x atlassian-local-cli-*
@@ -536,7 +537,7 @@ uv run pytest tests/test_converters.py::TestMdToConfluenceHtml::test_status_badg
 
 ## Releasing
 
-Tagging `v*` triggers GitHub Actions, which builds the macOS (arm64, x86_64) and
+Tagging `v*` triggers GitHub Actions, which builds the macOS (arm64) and
 Linux (x86_64) binaries and publishes a release with them attached.
 
 ```bash

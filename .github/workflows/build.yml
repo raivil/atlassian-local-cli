@@ -14,24 +14,22 @@ jobs:
           - os: macos-latest
             arch: arm64
             artifact: atlassian-local-cli-macos-arm64
-          - os: macos-15
-            arch: x86_64
-            artifact: atlassian-local-cli-macos-x86_64
           - os: ubuntu-latest
             arch: x86_64
             artifact: atlassian-local-cli-linux-x86_64
 
     runs-on: ${{ matrix.os }}
+    env:
+      # uv's own Python links the stdlib extensions into libpython. setup-python's
+      # ships ~60 of them as separate dylibs, which a onefile binary unpacks on
+      # every run: 2.4s to print --version, against 0.5s.
+      UV_PYTHON_PREFERENCE: only-managed
     steps:
       - uses: actions/checkout@v7
 
       - uses: astral-sh/setup-uv@v10.0.1
         with:
           version: "latest"
-
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.13"
 
       - name: Install dependencies
         run: uv sync
@@ -41,8 +39,14 @@ jobs:
 
       - name: Verify binary
         run: |
+          # A runner label can name the wrong architecture: macos-15 is Apple
+          # Silicon and shipped the "x86_64" artifact as arm64.
+          if [ "$(uname -m)" != "${{ matrix.arch }}" ]; then
+            echo "::error::runner is $(uname -m), artifact claims ${{ matrix.arch }}"
+            exit 1
+          fi
           ./dist/${{ matrix.artifact }} --help
-          ./dist/${{ matrix.artifact }} --version
+          time ./dist/${{ matrix.artifact }} --version
 
       - uses: actions/upload-artifact@v7
         with:
