@@ -548,3 +548,11 @@ git commit -m "feat: add the thing (v2.9.0)"
 git tag -s v2.9.0 -m "Release v2.9.0"
 git push origin main --follow-tags
 ```
+
+## License
+
+MIT — see [LICENSE](LICENSE).
+
+The release binaries bundle this project's dependencies, each under its own
+license. Most are permissive (MIT, BSD, Apache-2.0); `html2text` is
+GPL-3.0-or-later.

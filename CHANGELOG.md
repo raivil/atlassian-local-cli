@@ -1,5 +1,16 @@
 # Changelog
 
+## v2.16.1 (2026-11-13)
+
+### Fixed
+- The macOS release binary took 2.4s to print `--version`, and 8.8s on its first run; it now takes 0.5s, and 1.15s on its first run. CI built it with `actions/setup-python`'s Python, which ships ~60 standard-library extension modules as separate dylibs, and a onefile binary unpacks every one of them on each run. It now builds with uv's managed Python, which links them into libpython. Nothing changes for users except the speed.
+
+### Removed
+- The `atlassian-local-cli-macos-x86_64` asset. It was built on `macos-15`, an Apple Silicon runner, so it was an arm64 binary that never ran on an Intel Mac; no Intel user had a working binary to lose. Intel Macs install from source. The build now fails when a runner's architecture doesn't match the artifact name.
+
+### Added
+- MIT license (`LICENSE`, and `license` in `pyproject.toml`). The README notes that the release binaries bundle dependencies under their own licenses, including `html2text` (GPL-3.0-or-later).
+
 ## v2.16.0 (2026-11-13)
 
 ### Added
