@@ -1,4 +1,4 @@
-.PHONY: setup build clean test test-cov wiki-export wiki-attachments wiki-attach wiki-attachment-delete wiki-comments wiki-comment wiki-comment-delete wiki-raw wiki-update wiki-create wiki-delete jira-create jira-link-epic jira-get jira-my-tasks jira-transition jira-update jira-me jira-open jira-search jira-comment jira-comments jira-comment-update jira-comment-delete jira-link jira-unlink jira-link-types jira-worklog jira-sprints jira-sprint-add jira-sprint-issues jira-clone jira-delete jira-epics jira-epic-issues context-add context-list context-current context-use context-unset context-show
+.PHONY: setup build clean test test-cov wiki-export wiki-attachments wiki-attach wiki-attachment-delete wiki-search wiki-comments wiki-comment wiki-comment-delete wiki-raw wiki-update wiki-create wiki-delete jira-create jira-link-epic jira-get jira-my-tasks jira-transition jira-update jira-me jira-open jira-search jira-comment jira-comments jira-comment-update jira-comment-delete jira-link jira-unlink jira-link-types jira-worklog jira-sprints jira-sprint-add jira-sprint-issues jira-clone jira-delete jira-epics jira-epic-issues context-add context-list context-current context-use context-unset context-show
 
 # All atlassian-local-cli invocations. Pass CONTEXT=<name> on any target
 # to override the active context just for that command.
@@ -39,6 +39,21 @@ wiki-attachment-delete: ## Delete an attachment from a wiki page. Usage: make wi
 	@if [ -z "$(PAGE)" ]; then echo "Error: PAGE is required."; exit 1; fi
 	@if [ -z "$(NAME)" ] && [ -z "$(ID)" ]; then echo "Error: NAME or ID is required."; exit 1; fi
 	$(CLI) wiki-attachment-delete $(PAGE) $(if $(NAME),'$(NAME)') $(if $(ID),--id $(ID)) $(if $(YES),--yes)
+
+wiki-search: ## Search Confluence. Usage: make wiki-search [CQL='...'] [TEXT="..."] [TITLE="..."] [SPACE=KEY] [TYPE=page] [CONTRIBUTOR=me] [MODIFIED_SINCE=YYYY-MM-DD] [PARENT=<page_id>] [ORDER_BY=lastmodified] [REVERSE=1] [LIMIT=25] [JSON=1]
+	$(CLI) wiki-search \
+		$(if $(CQL),--cql '$(CQL)') \
+		$(if $(TEXT),--text "$(TEXT)") \
+		$(if $(TITLE),--title "$(TITLE)") \
+		$(if $(SPACE),--space '$(SPACE)') \
+		$(if $(TYPE),--type $(TYPE)) \
+		$(if $(CONTRIBUTOR),--contributor '$(CONTRIBUTOR)') \
+		$(if $(MODIFIED_SINCE),--modified-since $(MODIFIED_SINCE)) \
+		$(if $(PARENT),--parent $(PARENT)) \
+		$(if $(ORDER_BY),--order-by $(ORDER_BY)) \
+		$(if $(REVERSE),--reverse) \
+		$(if $(LIMIT),--limit $(LIMIT)) \
+		$(if $(JSON),--json)
 
 wiki-comments: ## List a wiki page's comments. Usage: make wiki-comments PAGE=<page_id> [LOCATION=footer|inline|resolved] [JSON=1]
 	@if [ -z "$(PAGE)" ]; then echo "Error: PAGE is required."; exit 1; fi

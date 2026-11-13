@@ -125,3 +125,31 @@ class TestCliParsing:
         args = mock_handler.call_args[0][0]
         assert args.name is None
         assert args.id == "att7"
+
+    @patch("atlassian_local_cli.cli.wiki_search")
+    def test_wiki_search_parses_filters(self, mock_handler):
+        sys.argv = ["atlassian-local-cli", "wiki-search", "--text", "pentest", "--space", "HG",
+                    "--type", "page", "--contributor", "me", "--modified-since", "2026-11-01",
+                    "--parent", "982417416", "--order-by", "lastmodified", "--reverse", "--limit", "5", "--json"]
+        main()
+        args = mock_handler.call_args[0][0]
+        assert (args.text, args.space, args.type, args.contributor) == ("pentest", "HG", "page", "me")
+        assert (args.modified_since, args.parent, args.order_by) == ("2026-11-01", "982417416", "lastmodified")
+        assert args.reverse is True and args.json is True
+        assert args.limit == 5
+
+    @patch("atlassian_local_cli.cli.wiki_search")
+    def test_wiki_search_defaults(self, mock_handler):
+        sys.argv = ["atlassian-local-cli", "wiki-search", "--cql", "label = runbook"]
+        main()
+        args = mock_handler.call_args[0][0]
+        assert args.cql == "label = runbook"
+        assert args.limit == 25
+        assert args.json is False and args.reverse is False
+        assert args.title is None and args.order_by is None
+
+    def test_wiki_search_rejects_an_unknown_type(self):
+        sys.argv = ["atlassian-local-cli", "wiki-search", "--type", "pages"]
+        with pytest.raises(SystemExit) as exc_info:
+            main()
+        assert exc_info.value.code == 2

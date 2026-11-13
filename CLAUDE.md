@@ -17,6 +17,7 @@ make build                                                  # Build standalone b
 make clean                                                  # Remove build artifacts
 make wiki-export PAGE=<id> [OUTPUT=out.md] [ATTACHMENTS=1]  # Export Confluence page
 make wiki-update PAGE=<id> INPUT=<file.md>                  # Update Confluence page
+make wiki-search [CQL='...'] [TEXT=...] [SPACE=...] [JSON=1]  # Search Confluence with CQL/filters
 make wiki-attachments PAGE=<id> [OUTPUT=<dir>]              # List or download page attachments
 make wiki-attach PAGE=<id> FILES="<f> [f...]" [REPLACE=1]   # Attach local files to a page
 make wiki-attachment-delete PAGE=<id> NAME=<file> YES=1     # Delete a page attachment
@@ -127,6 +128,11 @@ Python package in `src/atlassian_local_cli/` with `main.py` as a backward-compat
   - `_content_type()` types the upload from the name Confluence stores it under, via `mimetypes`. The library's own map covers 8 image and Office extensions, so live testing showed a `.csv` and a `.sql` both landing as `application/binary` — served as opaque downloads, with no preview. `mimetypes` returns the library's own answer for all 8, so the fallback (a `None` guess) cannot regress them. Typing from the local path instead would mistype `--name rows.csv` applied to an extension-less temp file.
   - `--name` renames on upload and is what the collision check runs against — checking the local filename instead would let `--name` overwrite an existing attachment silently.
   - `wiki-attachment-delete` targets a filename (unique per page — the same key `attach_file` upserts on) or an `--id` from `wiki-attachments --json`, requires exactly one of the two, and prints the attachment before removing it. `--yes` is checked before `create_confluence()`, matching `wiki-delete`/`wiki-comment-delete`: building the client first reports a missing token instead of the actual problem.
+- **`wiki_search.py`** — `wiki-search`. `build_search_cql()` follows `build_search_jql()`: `--cql` is AND-combined with the filter flags, and values go through `_quote()`, which escapes `"` and `\`.
+  - `_split_order_by()` lifts a trailing `ORDER BY` out of `--cql` before the parenthesised wrap; left inside the parentheses it is a parse error. The scan matches quoted strings alongside the keyword, so `text ~ "sort order by date"` is not split. `--order-by` alongside a raw `ORDER BY` is refused. No default order, so `--text` keeps relevance ranking.
+  - `_search()` pages on `start`, because `confluence.cql()` is a single request. It stops at `--limit`, at `totalSize`, or on an empty page; Server returns no `_links.next` for search. `expand=content.space` supplies the space key.
+  - Rows strip the `@@@hl@@@` highlight markers and HTML entities from excerpts. Without a `--type`, hits include spaces (no `content`, so `id` is null) and attachments.
+  - The library turns a 400 into `ApiValueError("The query cannot be parsed")`. The server's actual reason (`Missing closing quote … near field title`) survives only on `e.reason`, so it is printed together with the CQL that was sent. That is what lets an agent correct its own query.
 - **`wiki_comments.py`** — `wiki-comments` (list), `wiki-comment` (add), `wiki-comment-delete`.
   - Listing renders the **rendered** body (`body.export_view`, falling back to `body.view` then `body.storage`) through html2text. Storage format keeps a code block as an `ac:structured-macro`, which html2text reduces to the bare language name while dropping the CDATA payload — caught in live testing, where a SQL block listed as just `sql`. `--json` still returns the full payload including `body.storage`.
   - Adding converts the markdown body with `md_to_confluence_html()` first: `add_comment()` posts its argument as `body.storage`, so raw markdown lands on the page as literal `**` and `- `.

@@ -1,5 +1,16 @@
 # Changelog
 
+## v2.16.0 (2026-11-13)
+
+### Added
+- `wiki-search` searches Confluence with CQL (`--cql`), filter flags (`--text`, `--title`, `--space`, `--type`, `--contributor`, `--modified-since`, `--parent`), or both, AND-combined the same way as `jira-search`. Before this the CLI had no search at all, so an agent needing one built a Confluence client itself on each attempt, and the weekly-report skill keeps its own CQL script for the same reason. Each hit carries the content id that `wiki-export` takes, its type, space key, last-modified date, URL, and an excerpt with the highlight markers and HTML entities removed. `--json` returns the same fields as a list.
+
+`confluence.cql()` sends a single request, and this server returns at most 500 hits per page however many are asked for. `wiki-search` keeps paging on `start` until it reaches `--limit`, `totalSize`, or an empty page. When more matched than were shown, `Showing N of M` goes to stderr, keeping `--json` output parseable. Verified live: `--limit 600` returned 600 distinct pages where a single call stops at 500.
+
+Filter values are quoted with `"` and `\` escaped. An `ORDER BY` at the end of `--cql` is moved after the filter flags; left inside the parentheses that combine them, it is a parse error. An `ORDER BY` inside a quoted string is left alone, and passing `--order-by` together with a raw `ORDER BY` is refused. With no `--order-by`, results keep Confluence's relevance ranking.
+
+When Confluence can't parse a query, the library raises only "The query cannot be parsed". The server's actual reason (`Missing closing quote on string ... near field title`) is printed together with the CQL that was sent, so the query can be corrected without guessing.
+
 ## v2.15.0 (2026-09-17)
 
 ### Fixed

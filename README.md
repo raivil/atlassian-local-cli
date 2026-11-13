@@ -151,6 +151,12 @@ atlassian-local-cli wiki-export 12345 -o page.md --attachments   # images round-
 # Update a page from a markdown file
 atlassian-local-cli wiki-update 12345 page.md
 
+# Search — raw CQL, filter flags, or both (AND-combined)
+atlassian-local-cli wiki-search --text "replica lag" --space DEV
+atlassian-local-cli wiki-search --title "Week of" --parent 12345 --order-by created
+atlassian-local-cli wiki-search --contributor me --modified-since 2026-11-01 --order-by lastmodified
+atlassian-local-cli wiki-search --cql 'label = runbook and lastmodified >= now("-4w")' --json
+
 # List a page's attachments, or download them
 atlassian-local-cli wiki-attachments 12345
 atlassian-local-cli wiki-attachments 12345 -o ./attachments
@@ -200,6 +206,17 @@ because stdout has no directory to download into. Without the flag, export is
 unchanged and image links stay absolute. A file the page references but doesn't
 own is named on stderr rather than skipped quietly, and `wiki-update` warns
 before uploading an image whose file is missing from disk.
+
+`wiki-search` returns, per hit, the content id (what `wiki-export` takes), type,
+space key, last-modified date, URL and a plain-text excerpt; `--json` gives the
+same fields as a list. Results come back in relevance order unless you pass
+`--order-by`. A trailing `ORDER BY` inside `--cql` also works alongside filter
+flags: it is moved after them rather than wrapped into a parse error. Results
+are paged up to `--limit` (default 25), and when more matched, a
+`Showing N of M` note goes to stderr so `--json` output stays parseable. Space
+hits have no content id. A query Confluence can't parse prints the server's
+reason together with the CQL that was sent. `--modified-since` takes a date; for
+relative windows use `--cql 'lastmodified >= now("-1w")'`.
 
 `wiki-comment` bodies are markdown and go through the same converter as
 `wiki-update`, so lists, code blocks and `**bold**` render properly on the page.
@@ -459,6 +476,7 @@ make clean                                                  # Remove build artif
 
 make wiki-export PAGE=12345 OUTPUT=page.md ATTACHMENTS=1
 make wiki-update PAGE=12345 INPUT=page.md
+make wiki-search TEXT="replica lag" SPACE=DEV JSON=1
 make wiki-attachments PAGE=12345 OUTPUT=./attachments MATCH='*.sql'
 make wiki-attach PAGE=12345 FILES="report.pdf query.sql" REPLACE=1
 make wiki-attachment-delete PAGE=12345 NAME=report.pdf YES=1

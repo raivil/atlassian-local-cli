@@ -59,6 +59,7 @@ from .wiki import (
     wiki_update,
 )
 from .wiki_comments import wiki_comment, wiki_comment_delete, wiki_comments
+from .wiki_search import wiki_search
 
 
 def _context_list(args):
@@ -264,6 +265,23 @@ def main():
     p.add_argument("--attachments", action="store_true",
                    help="Rewrite image links to local filenames and download them next to the file (needs -o)")
     p.set_defaults(func=wiki_export)
+
+    p = subparsers.add_parser("wiki-search", help="Search Confluence with CQL or filters")
+    p.add_argument("--cql", help="Raw CQL (combined with filter flags via AND)")
+    p.add_argument("--text", help="Full-text match on title and body")
+    p.add_argument("--title", help="Title contains")
+    p.add_argument("--space", help="Space key (e.g. HG, ~username)")
+    p.add_argument("--type", choices=["page", "blogpost", "comment", "attachment", "space"],
+                   help="Content type (default: any)")
+    p.add_argument("--contributor", help="Created or edited by this user (or 'me')")
+    p.add_argument("--modified-since", metavar="DATE", help="Last modified on or after DATE (YYYY-MM-DD)")
+    p.add_argument("--parent", metavar="PAGE_ID", help="Direct children of this page")
+    p.add_argument("--order-by", metavar="FIELD",
+                   help="CQL field to order by, e.g. lastmodified, created, title (default: relevance)")
+    p.add_argument("--reverse", action="store_true", help="Order ASC instead of DESC")
+    p.add_argument("--limit", type=int, default=25, help="Max results (default: 25)")
+    p.add_argument("--json", action="store_true", help="Output as JSON")
+    p.set_defaults(func=wiki_search)
 
     p = subparsers.add_parser("wiki-comments", help="List a page's comments")
     p.add_argument("page_id", help="Confluence page ID")
